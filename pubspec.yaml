@@ -5,8 +5,11 @@ repository: https://github.com/namidaco/namico_db_wrapper
 
 environment:
   sdk: ^3.4.0
+  flutter: ^3.22.0
 
 dependencies:
+  flutter:
+    sdk: flutter
   sqlite3: ^2.4.3
   sqlcipher_flutter_libs: ^0.6.3
 
