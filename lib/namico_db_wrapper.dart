@@ -1,6 +1,7 @@
 library namico_db_wrapper;
 
 import 'dart:convert';
+import 'dart:io';
 import 'dart:isolate';
 
 import 'package:sqlcipher_flutter_libs/sqlcipher_flutter_libs.dart' as sqlcipher;

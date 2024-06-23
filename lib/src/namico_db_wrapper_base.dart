@@ -2,25 +2,24 @@ part of '../namico_db_wrapper.dart';
 
 class DBWrapper {
   late final Database sql;
-  final String _dbDirectory;
+  late final String _dbDirectory;
   final String _dbName;
   final String _extension;
 
-  DBWrapper.open(this._dbDirectory, this._dbName, {String? encryptionKey}) : _extension = encryptionKey != null ? '' : '.db' {
+  DBWrapper.open(String directory, this._dbName, {String? encryptionKey}) : _extension = encryptionKey != null ? '' : '.db' {
     _isOpen = true;
 
-    final dbDirectory = _dbDirectory;
+    if (!directory.endsWith(Platform.pathSeparator)) directory += Platform.pathSeparator;
+
+    _dbDirectory = directory;
     final name = _dbName;
 
-    sql = sqlite3.open("$dbDirectory/$name$_extension");
-    if (encryptionKey != null) {
-      try {
-        sql.execute('PRAGMA key = "$encryptionKey";');
-      } catch (_) {}
-    }
-    sql.execute("PRAGMA journal_mode=WAL");
+    final path = "$directory$name$_extension";
+    final uri = Uri.file(path);
+    sql = sqlite3.open("$uri?cache=shared", uri: true);
+    sql.prepareDatabase(encryptionKey: encryptionKey);
 
-    final utils = _DBUtils(sql, name);
+    final utils = DBUtils(sql, name);
     utils.createTable();
     _readSt = utils.buildReadKeyStatement();
     _writeSt = utils.buildWriteStatement();
@@ -52,7 +51,7 @@ class DBWrapper {
   }
 
   bool containsKey(String key) {
-    _existSt ??= _DBUtils(sql, _dbName).buildExistStatement();
+    _existSt ??= DBUtils(sql, _dbName).buildExistStatement();
     return _existSt?.select([key]).isNotEmpty == true;
   }
 
@@ -134,25 +133,23 @@ class DBWrapper {
   }
 
   Future<void> deleteAsync(String key) {
-    return _executeAsync(
+    return _executeAsyncMODIFY(
       (db, utils) {
         sql.execute('DELETE FROM $_dbName WHERE key = ?', [key]);
       },
-      readOnly: false,
     );
   }
 
   Future<void> deleteEverything() {
-    return _executeAsync(
+    return _executeAsyncMODIFY(
       (db, utils) {
         sql.execute('DELETE FROM $_dbName'); //  WHERE true
       },
-      readOnly: false,
     );
   }
 
   Future<T> _writeAsync<T>(T Function(PreparedStatement writeStatement) fn) {
-    return _executeAsync(
+    return _executeAsyncMODIFY(
       (db, utils) {
         final st = utils.buildWriteStatement();
         try {
@@ -161,12 +158,11 @@ class DBWrapper {
           st.dispose();
         }
       },
-      readOnly: false,
     );
   }
 
   Future<T> _readAsync<T>(T Function(PreparedStatement readStatement) fn) {
-    return _executeAsync(
+    return _executeAsyncREAD(
       (db, utils) {
         final st = utils.buildReadKeyStatement();
         try {
@@ -175,11 +171,10 @@ class DBWrapper {
           st.dispose();
         }
       },
-      readOnly: true,
     );
   }
 
-  Future<T> _executeAsync<T>(T Function(Database db, _DBUtils utils) fn, {required bool readOnly}) {
+  Future<T> _executeAsyncREAD<T>(T Function(Database db, DBUtils utils) fn) {
     final dbDirectory = _dbDirectory;
     final name = _dbName;
     final ext = _extension;
@@ -187,10 +182,38 @@ class DBWrapper {
     return Isolate.run(
       () {
         sqlopen.open.overrideFor(sqlopen.OperatingSystem.android, sqlcipher.openCipherOnAndroid);
-        final sql = sqlite3.open("$dbDirectory/$name$ext", mode: readOnly ? OpenMode.readOnly : OpenMode.readWriteCreate);
-        final utils = _DBUtils(sql, name);
+
+        final path = "$dbDirectory$name$ext";
+        final uri = Uri.file(path);
+        final sql = sqlite3.open("$uri?cache=shared", mode: OpenMode.readOnly, uri: true);
+
+        final utils = DBUtils(sql, name);
         try {
           return fn(sql, utils);
+        } finally {
+          sql.dispose();
+        }
+      },
+    );
+  }
+
+  Future<T> _executeAsyncMODIFY<T>(T Function(Database db, DBUtils utils) fn) {
+    final dbDirectory = _dbDirectory;
+    final name = _dbName;
+    final ext = _extension;
+
+    return Isolate.run(
+      () {
+        sqlopen.open.overrideFor(sqlopen.OperatingSystem.android, sqlcipher.openCipherOnAndroid);
+
+        final path = "$dbDirectory$name$ext";
+        final uri = Uri.file(path);
+        final sql = sqlite3.open("$uri?cache=shared", mode: OpenMode.readWriteCreate, uri: true);
+
+        final utils = DBUtils(sql, name);
+        try {
+          var res = fn(sql, utils);
+          return res;
         } finally {
           sql.dispose();
         }
@@ -212,11 +235,11 @@ extension _ValueEncoder on Map<String, dynamic> {
   String encode() => jsonEncode(this);
 }
 
-class _DBUtils {
+class DBUtils {
   final Database sql;
   final String tableName;
 
-  const _DBUtils(this.sql, this.tableName);
+  const DBUtils(this.sql, this.tableName);
 
   void createTable() {
     return sql.execute('''
@@ -252,5 +275,19 @@ extension _Listie<E> on List<E> {
     for (int i = 0; i < length; i++) {
       fn(this[i]);
     }
+  }
+}
+
+extension DatabaseUtils on Database {
+  void prepareDatabase({String? encryptionKey}) {
+    final sql = this;
+    if (encryptionKey != null) {
+      try {
+        sql.execute('PRAGMA key = "$encryptionKey";');
+      } catch (_) {}
+    }
+    sql.execute("PRAGMA journal_mode=wal2");
+    sql.execute("PRAGMA synchronous=NORMAL");
+    sql.execute("PRAGMA busy_timeout=5000");
   }
 }
