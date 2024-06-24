@@ -5,6 +5,7 @@ class DBWrapper {
   late final String _dbDirectory;
   final String _dbName;
   final String _extension;
+  late final _DBIsolateManager _isolateManager;
 
   DBWrapper.open(String directory, this._dbName, {String? encryptionKey}) : _extension = encryptionKey != null ? '' : '.db' {
     _isOpen = true;
@@ -16,13 +17,15 @@ class DBWrapper {
 
     final path = "$directory$name$_extension";
     final uri = Uri.file(path);
-    sql = sqlite3.open("$uri?cache=shared", uri: true);
+    final dbOpenUriFinal = "$uri?cache=shared";
+    sql = sqlite3.open(dbOpenUriFinal, uri: true);
     sql.prepareDatabase(encryptionKey: encryptionKey);
 
     final utils = DBUtils(sql, name);
     utils.createTable();
     _readSt = utils.buildReadKeyStatement();
     _writeSt = utils.buildWriteStatement();
+    _isolateManager = _DBIsolateManager(_dbName, dbOpenUriFinal);
   }
 
   late final PreparedStatement _writeSt;
@@ -34,10 +37,11 @@ class DBWrapper {
 
   void close() {
     _isOpen = false;
-    sql.dispose();
     _readSt.dispose();
     _writeSt.dispose();
     _existSt?.dispose();
+    sql.dispose();
+    _isolateManager.dispose();
   }
 
   void loadEverything(void Function(Map<String, dynamic> value) onValue) {
@@ -95,70 +99,42 @@ class DBWrapper {
   }
 
   Future<void> putAsync(String key, Map<String, dynamic> object) {
-    return _writeAsync(
-      (writeStatement) {
-        writeStatement.execute([key, object.encode()]);
-      },
-    );
+    final entries = IsolateEncodableWriteList.fromEntry(key, object);
+    return _writeAsync(entries);
   }
 
   Future<void> putAllAsync<E>(List<E> items, CacheWriteItemToEntryCallback<E> itemToEntry) {
-    final entries = <MapEntry<String, Map<String, dynamic>>>[];
-    items.loop((e) {
-      final entry = itemToEntry(e);
-      entries.add(entry);
-    });
-    return _writeAsync(
-      (writeStatement) {
-        entries.loop((item) => writeStatement.execute([item.key, item.value.encode()]));
-      },
-    );
+    final entries = IsolateEncodableWriteList.fromList(items, itemToEntry);
+    return _writeAsync(entries);
   }
 
   Future<void> putAllIterableAsync<E>(Iterable<E> items, CacheWriteItemToEntryCallback<E> itemToEntry) {
-    final entries = <MapEntry<String, Map<String, dynamic>>>[];
-    for (final e in items) {
-      final entry = itemToEntry(e);
-      entries.add(entry);
-    }
-    return _writeAsync(
-      (writeStatement) {
-        entries.loop((item) => writeStatement.execute([item.key, item.value.encode()]));
-      },
-    );
+    final entries = IsolateEncodableWriteList.fromIterable(items, itemToEntry);
+    return _writeAsync(entries);
   }
 
   void delete(String key) {
-    sql.execute('DELETE FROM $_dbName WHERE key = ?', [key]);
+    final command = IsolateEncodableDeleteList([key]);
+    final st = command.buildStatement(sql, _dbName);
+    try {
+      return command.execute(st);
+    } finally {
+      st.dispose();
+    }
   }
 
   Future<void> deleteAsync(String key) {
-    return _executeAsyncMODIFY(
-      (db, utils) {
-        sql.execute('DELETE FROM $_dbName WHERE key = ?', [key]);
-      },
-    );
+    final command = IsolateEncodableDeleteList([key]);
+    return _executeAsyncMODIFY(command);
   }
 
   Future<void> deleteEverything() {
-    return _executeAsyncMODIFY(
-      (db, utils) {
-        sql.execute('DELETE FROM $_dbName'); //  WHERE true
-      },
-    );
+    final command = IsolateEncodableDeleteEverything();
+    return _executeAsyncMODIFY(command);
   }
 
-  Future<T> _writeAsync<T>(T Function(PreparedStatement writeStatement) fn) {
-    return _executeAsyncMODIFY(
-      (db, utils) {
-        final st = utils.buildWriteStatement();
-        try {
-          return fn(st);
-        } finally {
-          st.dispose();
-        }
-      },
-    );
+  Future<void> _writeAsync(IsolateEncodableWriteList writeList) {
+    return _executeAsyncMODIFY(writeList);
   }
 
   Future<T> _readAsync<T>(T Function(PreparedStatement readStatement) fn) {
@@ -197,28 +173,8 @@ class DBWrapper {
     );
   }
 
-  Future<T> _executeAsyncMODIFY<T>(T Function(Database db, DBUtils utils) fn) {
-    final dbDirectory = _dbDirectory;
-    final name = _dbName;
-    final ext = _extension;
-
-    return Isolate.run(
-      () {
-        sqlopen.open.overrideFor(sqlopen.OperatingSystem.android, sqlcipher.openCipherOnAndroid);
-
-        final path = "$dbDirectory$name$ext";
-        final uri = Uri.file(path);
-        final sql = sqlite3.open("$uri?cache=shared", mode: OpenMode.readWriteCreate, uri: true);
-
-        final utils = DBUtils(sql, name);
-        try {
-          var res = fn(sql, utils);
-          return res;
-        } finally {
-          sql.dispose();
-        }
-      },
-    );
+  Future<void> _executeAsyncMODIFY(IsolateEncodableBase command) {
+    return _isolateManager.executeIsolate(command);
   }
 }
 
@@ -290,4 +246,83 @@ extension DatabaseUtils on Database {
     sql.execute("PRAGMA synchronous=NORMAL");
     sql.execute("PRAGMA busy_timeout=5000");
   }
+}
+
+class _DBIsolateManager with PortsProvider<Map> {
+  final String tableName;
+  final String dbOpenUriFinal;
+  _DBIsolateManager(this.tableName, this.dbOpenUriFinal);
+
+  void dispose() => disposePort();
+
+  Future<void> executeIsolate(IsolateEncodableBase command) async {
+    await initialize();
+    await sendPort(command);
+  }
+
+  @override
+  IsolateFunctionReturnBuild<Map> isolateFunction(SendPort port) {
+    final params = {
+      'port': port,
+      'tableName': tableName,
+      'uriFinal': dbOpenUriFinal,
+    };
+    return IsolateFunctionReturnBuild(_prepareResourcesAndSearch, params);
+  }
+
+  static void _prepareResourcesAndSearch(Map params) async {
+    final sendPort = params['port'] as SendPort;
+    final tableName = params['tableName'] as String;
+    final uriFinal = params['uriFinal'] as String;
+
+    final recievePort = ReceivePort();
+    sendPort.send(recievePort.sendPort);
+
+    sqlopen.open.overrideFor(sqlopen.OperatingSystem.android, sqlcipher.openCipherOnAndroid);
+
+    final sql = sqlite3.open(uriFinal, mode: OpenMode.readWriteCreate, uri: true);
+
+    final utils = DBUtils(sql, tableName);
+    final writeStatement = utils.buildWriteStatement();
+
+    // -- start listening
+    StreamSubscription? streamSub;
+    streamSub = recievePort.listen((p) async {
+      if (PortsProvider.isDisposeMessage(p)) {
+        recievePort.close();
+        streamSub?.cancel();
+        writeStatement.dispose();
+        sql.dispose();
+        return;
+      }
+      final command = p as IsolateEncodableBase;
+
+      PreparedStatement statement;
+      bool canDisposeStatement;
+      if (command is IsolateEncodableWriteList) {
+        statement = writeStatement;
+        canDisposeStatement = false;
+      } else {
+        statement = command.buildStatement(sql, tableName);
+        canDisposeStatement = true;
+      }
+      try {
+        sql.execute('BEGIN;');
+        command.execute(statement);
+        sql.execute('COMMIT;');
+      } catch (e) {
+        try {
+          sql.execute('ROLLBACK;');
+        } catch (_) {}
+        rethrow;
+      } finally {
+        if (canDisposeStatement) statement.dispose();
+      }
+    });
+
+    sendPort.send(PortsProviderMessages.prepared); // prepared
+  }
+
+  @override
+  void onResult(_) {}
 }
