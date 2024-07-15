@@ -35,7 +35,9 @@ void main() {
       await dbwrapper.deleteAsync('5');
       await preventIsolateClosing();
 
-      dbwrapper.loadEverything(print);
+      dbwrapper.loadEverythingKeyed(
+        (key, value) => print('$key ||| $value'),
+      );
     });
   });
 }

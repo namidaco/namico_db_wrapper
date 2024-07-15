@@ -54,6 +54,17 @@ class DBWrapper {
     );
   }
 
+  void loadEverythingKeyed(void Function(String key, Map<String, dynamic> value) onValue) {
+    final res = sql.select('SELECT value,key FROM $_dbName'); //  WHERE true
+    res.rows.loop(
+      (row) {
+        final key = row[1] as String;
+        final parsed = row.parseRow();
+        if (parsed != null) onValue(key, parsed);
+      },
+    );
+  }
+
   bool containsKey(String key) {
     _existSt ??= DBUtils(sql, _dbName).buildExistStatement();
     return _existSt?.select([key]).isNotEmpty == true;
