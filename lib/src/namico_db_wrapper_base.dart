@@ -3,29 +3,32 @@ part of '../namico_db_wrapper.dart';
 class DBWrapper {
   late final Database sql;
   late final String _dbDirectory;
-  final String _dbName;
+  final String _dbFileName;
+  final String _dbTableName;
   final String _extension;
   late final _DBIsolateManager _isolateManager;
 
-  DBWrapper.open(String directory, this._dbName, {String? encryptionKey}) : _extension = encryptionKey != null ? '' : '.db' {
+  DBWrapper.open(String directory, this._dbFileName, {String? encryptionKey})
+      : _extension = encryptionKey != null ? '' : '.db',
+        _dbTableName = '`$_dbFileName`' {
     _isOpen = true;
 
     if (!directory.endsWith(Platform.pathSeparator)) directory += Platform.pathSeparator;
 
     _dbDirectory = directory;
-    final name = _dbName;
 
-    final path = "$directory$name$_extension";
+    final path = "$directory$_dbFileName$_extension";
     final uri = Uri.file(path);
     final dbOpenUriFinal = "$uri?cache=shared";
     sql = sqlite3.open(dbOpenUriFinal, uri: true);
     sql.prepareDatabase(encryptionKey: encryptionKey);
 
-    final utils = DBUtils(sql, name);
+    final tableName = _dbTableName;
+    final utils = DBUtils(sql, tableName);
     utils.createTable();
     _readSt = utils.buildReadKeyStatement();
     _writeSt = utils.buildWriteStatement();
-    _isolateManager = _DBIsolateManager(_dbName, dbOpenUriFinal);
+    _isolateManager = _DBIsolateManager(tableName, dbOpenUriFinal);
   }
 
   late final PreparedStatement _writeSt;
@@ -45,7 +48,7 @@ class DBWrapper {
   }
 
   void loadEverything(void Function(Map<String, dynamic> value) onValue) {
-    final res = sql.select('SELECT value FROM $_dbName'); //  WHERE true
+    final res = sql.select('SELECT value FROM $_dbTableName'); //  WHERE true
     res.rows.loop(
       (row) {
         final parsed = row.parseRow();
@@ -55,7 +58,7 @@ class DBWrapper {
   }
 
   void loadEverythingKeyed(void Function(String key, Map<String, dynamic> value) onValue) {
-    final res = sql.select('SELECT value,key FROM $_dbName'); //  WHERE true
+    final res = sql.select('SELECT value,key FROM $_dbTableName'); //  WHERE true
     res.rows.loop(
       (row) {
         final key = row[1] as String;
@@ -66,7 +69,7 @@ class DBWrapper {
   }
 
   bool containsKey(String key) {
-    _existSt ??= DBUtils(sql, _dbName).buildExistStatement();
+    _existSt ??= DBUtils(sql, _dbTableName).buildExistStatement();
     return _existSt?.select([key]).isNotEmpty == true;
   }
 
@@ -126,7 +129,7 @@ class DBWrapper {
 
   void delete(String key) {
     final command = IsolateEncodableDeleteList([key]);
-    final st = command.buildStatement(sql, _dbName);
+    final st = command.buildStatement(sql, _dbTableName);
     try {
       return command.execute(st);
     } finally {
@@ -163,18 +166,19 @@ class DBWrapper {
 
   Future<T> _executeAsyncREAD<T>(T Function(Database db, DBUtils utils) fn) {
     final dbDirectory = _dbDirectory;
-    final name = _dbName;
+    final dbfilename = _dbFileName;
+    final dbtablename = _dbTableName;
     final ext = _extension;
 
     return Isolate.run(
       () {
         sqlopen.open.overrideFor(sqlopen.OperatingSystem.android, sqlcipher.openCipherOnAndroid);
 
-        final path = "$dbDirectory$name$ext";
+        final path = "$dbDirectory$dbfilename$ext";
         final uri = Uri.file(path);
         final sql = sqlite3.open("$uri?cache=shared", mode: OpenMode.readOnly, uri: true);
 
-        final utils = DBUtils(sql, name);
+        final utils = DBUtils(sql, dbtablename);
         try {
           return fn(sql, utils);
         } finally {

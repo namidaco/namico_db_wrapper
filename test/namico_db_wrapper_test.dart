@@ -12,7 +12,7 @@ void main() {
       open.overrideFor(OperatingSystem.android, openCipherOnAndroid);
       final dir = '${Directory.current.path}${Platform.pathSeparator}db_test';
       Directory(dir).createSync();
-      final dbwrapper = DBWrapper.open(dir, 'test');
+      final dbwrapper = DBWrapper.open(dir, '_-test-_');
 
       dbwrapper.put('_', {'title': 'hehe'});
       final res = dbwrapper.get('_');
@@ -24,7 +24,7 @@ void main() {
       open.overrideFor(OperatingSystem.android, openCipherOnAndroid);
       final dir = '${Directory.current.path}${Platform.pathSeparator}db_test';
       Directory(dir).createSync();
-      final dbwrapper = DBWrapper.open(dir, 'test');
+      final dbwrapper = DBWrapper.open(dir, '_-test-_');
 
       final items = List.generate(100, (index) => MapEntry(index, {'title': 'hehe$index'}));
       await Future.wait([
