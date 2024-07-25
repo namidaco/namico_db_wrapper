@@ -271,7 +271,7 @@ class _DBIsolateManager with PortsProvider<Map> {
   void dispose() => disposePort();
 
   Future<void> executeIsolate(IsolateEncodableBase command) async {
-    await initialize();
+    if (!isInitialized) await initialize();
     await sendPort(command);
   }
 
