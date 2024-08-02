@@ -2,7 +2,8 @@ part of '../namico_db_wrapper.dart';
 
 class DBWrapperMain {
   final String _defaultDirectory;
-  DBWrapperMain.init(this._defaultDirectory) {
+  final void Function(DBWrapper db)? onFirstOpen;
+  DBWrapperMain.init(this._defaultDirectory, {this.onFirstOpen}) {
     sqlopen.open.overrideFor(sqlopen.OperatingSystem.android, sqlcipher.openCipherOnAndroid);
   }
 
@@ -15,6 +16,7 @@ class DBWrapperMain {
     final dir = _defaultDirectory;
     final newBox = DBWrapper.open(dir, boxName, encryptionKey: encryptionKey);
     _openDB[boxName] = newBox;
+    if (onFirstOpen != null) onFirstOpen!(newBox);
     return newBox;
   }
 
