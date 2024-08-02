@@ -7,7 +7,21 @@ abstract class IsolateEncodableBase {
   void execute(PreparedStatement statement);
 }
 
+class IsolateEncodableClaimFreeSpace extends IsolateEncodableBase {
+  const IsolateEncodableClaimFreeSpace();
+
+  @override
+  PreparedStatement buildStatement(Database sql, String tableName) {
+    return sql.prepare('VACUUM'); // WHERE true
+  }
+
+  @override
+  void execute(PreparedStatement statement) => statement.execute();
+}
+
 class IsolateEncodableDeleteEverything extends IsolateEncodableBase {
+  const IsolateEncodableDeleteEverything();
+
   @override
   PreparedStatement buildStatement(Database sql, String tableName) {
     return sql.prepare('DELETE FROM $tableName'); // WHERE true

@@ -1,5 +1,13 @@
 part of '../namico_db_wrapper.dart';
 
+/// A wrapper around SQLite3 that facilitates readings/insertions/deletions/etc.
+///
+/// The Columns are always [String] `key` and json-encoded [String] `value`
+///
+/// All async functions inside this class run on a separate *single* isolate, using [PortsProvider]
+/// which means:
+/// 1. the future returned will NOT refer to actual completions, but rather the sent message only.
+/// 2. executing multiple async functions simultaneously will be safe, since operations would still be blocked but on another isolate.
 class DBWrapper {
   late final Database sql;
   late final String _dbDirectory;
@@ -46,6 +54,10 @@ class DBWrapper {
     sql.dispose();
     _isolateManager.dispose();
   }
+
+  void claimFreeSpace() => sql.execute('VACUUM');
+
+  Future<void> claimFreeSpaceAsync() => _executeAsyncMODIFY(const IsolateEncodableClaimFreeSpace());
 
   void loadEverything(void Function(Map<String, dynamic> value) onValue) {
     final res = sql.select('SELECT value FROM $_dbTableName'); //  WHERE true
@@ -143,8 +155,7 @@ class DBWrapper {
   }
 
   Future<void> deleteEverything() {
-    final command = IsolateEncodableDeleteEverything();
-    return _executeAsyncMODIFY(command);
+    return _executeAsyncMODIFY(const IsolateEncodableDeleteEverything());
   }
 
   Future<void> _writeAsync(IsolateEncodableWriteList writeList) {
