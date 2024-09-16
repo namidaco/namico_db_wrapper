@@ -9,12 +9,12 @@ class DBWrapperMain {
 
   final _openDB = <String, DBWrapper>{};
 
-  DBWrapper open(String boxName, {String? encryptionKey}) {
+  DBWrapper open(String boxName, {String? encryptionKey, bool createIfNotExist = false}) {
     final box = _openDB[boxName];
     if (box != null && box.isOpen) return box;
 
     final dir = _defaultDirectory;
-    final newBox = DBWrapper.open(dir, boxName, encryptionKey: encryptionKey);
+    final newBox = DBWrapper.open(dir, boxName, encryptionKey: encryptionKey, createIfNotExist: createIfNotExist);
     _openDB[boxName] = newBox;
     if (onFirstOpen != null) onFirstOpen!(newBox);
     return newBox;

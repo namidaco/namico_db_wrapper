@@ -26,6 +26,8 @@ class DBWrapper {
     _dbDirectory = directory;
 
     final path = "$directory$_dbFileName$_extension";
+    final file = File(path);
+    if (createIfNotExist && !file.existsSync()) file.createSync(recursive: true);
     final uri = Uri.file(path);
     final dbOpenUriFinal = "$uri?cache=shared";
     sql = sqlite3.open(dbOpenUriFinal, uri: true);
