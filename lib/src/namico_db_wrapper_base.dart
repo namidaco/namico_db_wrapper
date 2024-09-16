@@ -16,7 +16,9 @@ class DBWrapper {
   final String _extension;
   late final _DBIsolateManager _isolateManager;
 
-  DBWrapper.open(String directory, this._dbFileName, {String? encryptionKey})
+  late final File file;
+
+  DBWrapper.open(String directory, this._dbFileName, {String? encryptionKey, bool createIfNotExist = false})
       : _extension = encryptionKey != null ? '' : '.db',
         _dbTableName = '`$_dbFileName`' {
     _isOpen = true;
@@ -26,7 +28,7 @@ class DBWrapper {
     _dbDirectory = directory;
 
     final path = "$directory$_dbFileName$_extension";
-    final file = File(path);
+    file = File(path);
     if (createIfNotExist && !file.existsSync()) file.createSync(recursive: true);
     final uri = Uri.file(path);
     final dbOpenUriFinal = "$uri?cache=shared";
