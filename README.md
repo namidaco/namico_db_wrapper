@@ -5,6 +5,9 @@
 
 - opening database
 ```dart
+// initialize sql once in your `main()` function.
+NamicoDBWrapper.initialize();
+
 // `DBWrapper.open()` accepts `directory path & db name`.
 final db = DBWrapper.open(
   directoryPath, dbName,

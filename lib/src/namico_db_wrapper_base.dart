@@ -247,7 +247,7 @@ class DBWrapper {
     final dbtablename = _dbTableName;
     return Isolate.run(
       () {
-        sqlopen.open.overrideFor(sqlopen.OperatingSystem.android, sqlcipher.openCipherOnAndroid);
+        NamicoDBWrapper.initialize();
         final uri = Uri.file(dbFilePath);
         final sql = sqlite3.open("$uri?cache=shared", mode: OpenMode.readOnly, uri: true);
         final commands = DBCommandsBase.dynamic(customTypes);
@@ -369,7 +369,7 @@ class _DBIsolateManager with PortsProvider<Map> {
     final recievePort = ReceivePort();
     sendPort.send(recievePort.sendPort);
 
-    sqlopen.open.overrideFor(sqlopen.OperatingSystem.android, sqlcipher.openCipherOnAndroid);
+    NamicoDBWrapper.initialize();
     final sql = sqlite3.open(uriFinal, mode: OpenMode.readWriteCreate, uri: true);
     final commands = DBCommandsBase.dynamic(customTypes);
     final utils = _DBCommandsManager(sql, tableName, commands);

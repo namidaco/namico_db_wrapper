@@ -1,7 +1,5 @@
 import 'dart:io';
 
-import 'package:sqlcipher_flutter_libs/sqlcipher_flutter_libs.dart';
-import 'package:sqlite3/open.dart';
 import 'package:test/test.dart';
 
 import 'package:namico_db_wrapper/namico_db_wrapper.dart';
@@ -9,7 +7,7 @@ import 'package:namico_db_wrapper/namico_db_wrapper.dart';
 void main() {
   group('Main tests', () {
     test('read/write', () {
-      open.overrideFor(OperatingSystem.android, openCipherOnAndroid);
+      NamicoDBWrapper.initialize();
       final dir = '${Directory.current.path}${Platform.pathSeparator}db_test';
       Directory(dir).createSync();
       final dbwrapper = DBWrapper.open(dir, '_-test-_');
@@ -21,7 +19,7 @@ void main() {
     });
     test('concurrent writing', () async {
       Future<void> preventIsolateClosing() => Future.delayed(Duration(seconds: 1));
-      open.overrideFor(OperatingSystem.android, openCipherOnAndroid);
+      NamicoDBWrapper.initialize();
       final dir = '${Directory.current.path}${Platform.pathSeparator}db_test';
       Directory(dir).createSync();
       final dbwrapper = DBWrapper.open(dir, '_-test-_');
@@ -42,7 +40,7 @@ void main() {
   });
   group('Custom DB tests', () {
     test('read/write', () async {
-      open.overrideFor(OperatingSystem.android, openCipherOnAndroid);
+      NamicoDBWrapper.initialize();
       final dir = '${Directory.current.path}${Platform.pathSeparator}db_test';
       final customTypes = [
         DBColumnType(

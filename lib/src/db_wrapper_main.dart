@@ -6,9 +6,7 @@ class DBWrapperMain {
   final void Function(DBWrapper db)? onFirstOpen;
 
   /// Initialize a databases manager for a directory.
-  DBWrapperMain.init(this._defaultDirectory, {this.onFirstOpen}) {
-    sqlopen.open.overrideFor(sqlopen.OperatingSystem.android, sqlcipher.openCipherOnAndroid);
-  }
+  DBWrapperMain(this._defaultDirectory, {this.onFirstOpen});
 
   final _openDB = <String, DBWrapper>{};
 
