@@ -132,8 +132,10 @@ class DBWrapper {
       (row) {
         try {
           final parsedKeyed = _commands.parseKeyedResults(res);
-          final parsed = parsedKeyed.map;
-          if (parsed != null) onValue(parsedKeyed.key, parsed);
+          if (parsedKeyed != null) {
+            final parsed = parsedKeyed.map;
+            if (parsed != null) onValue(parsedKeyed.key, parsed);
+          }
         } catch (_) {}
       },
     );

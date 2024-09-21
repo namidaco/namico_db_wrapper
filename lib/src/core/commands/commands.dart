@@ -22,8 +22,9 @@ final class DBCommands extends DBCommandsBase {
   }
 
   @override
-  DBKeyedResults parseKeyedResults(ResultSet result) {
+  DBKeyedResults? parseKeyedResults(ResultSet result) {
     final resmap = parseResults(result);
+    if (resmap == null) return null;
     final key = result.rows[1] as String;
     return DBKeyedResults(
       key: key,

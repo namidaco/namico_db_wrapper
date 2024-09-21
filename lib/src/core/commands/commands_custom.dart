@@ -15,10 +15,11 @@ final class DBCommandsCustom extends DBCommandsBase {
   }
 
   @override
-  Map<String, dynamic> parseResults(ResultSet result) {
-    final rows = result.rows.first;
-    final columns = result.columnNames;
+  Map<String, dynamic>? parseResults(ResultSet result) {
+    final rows = result.rows.firstOrNull;
+    if (rows == null || rows.isEmpty) return null;
     final map = <String, dynamic>{};
+    final columns = result.columnNames;
     for (int i = 0; i < rows.length; i++) {
       var value = rows[i];
       var columnName = columns[i];
@@ -28,10 +29,13 @@ final class DBCommandsCustom extends DBCommandsBase {
   }
 
   @override
-  DBKeyedResults parseKeyedResults(ResultSet result) {
+  DBKeyedResults? parseKeyedResults(ResultSet result) {
     final resmap = parseResults(result);
+    if (resmap == null) return null;
+    final key = resmap['key'] as String?;
+    if (key == null) return null;
     return DBKeyedResults(
-      key: resmap['key'] as String,
+      key: key,
       map: resmap,
     );
   }

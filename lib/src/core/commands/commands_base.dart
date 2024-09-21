@@ -12,7 +12,7 @@ abstract interface class DBCommandsBase {
   String loadEverythingKeyedCommand(String tableName);
 
   Map<String, dynamic>? parseResults(ResultSet result);
-  DBKeyedResults parseKeyedResults(ResultSet result);
+  DBKeyedResults? parseKeyedResults(ResultSet result);
   List<dynamic> objectToWriteParameters(String key, Map<String, dynamic> object);
 
   String createTableCommand(String tableName);
