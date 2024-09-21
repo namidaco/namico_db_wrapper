@@ -3,32 +3,32 @@ part of '../../namico_db_wrapper.dart';
 abstract class IsolateEncodableBase {
   const IsolateEncodableBase();
 
-  PreparedStatement buildStatement(Database sql, String tableName);
-  void execute(PreparedStatement statement);
+  PreparedStatement buildStatement(Database sql, String tableName, {required DBCommandsBase commands});
+  void execute(PreparedStatement statement, {required DBCommandsBase commands});
 }
 
 class IsolateEncodableClaimFreeSpace extends IsolateEncodableBase {
   const IsolateEncodableClaimFreeSpace();
 
   @override
-  PreparedStatement buildStatement(Database sql, String tableName) {
-    return sql.prepare('VACUUM'); // WHERE true
+  PreparedStatement buildStatement(Database sql, String tableName, {required DBCommandsBase commands}) {
+    return sql.prepare('VACUUM');
   }
 
   @override
-  void execute(PreparedStatement statement) => statement.execute();
+  void execute(PreparedStatement statement, {required DBCommandsBase commands}) => statement.execute();
 }
 
 class IsolateEncodableDeleteEverything extends IsolateEncodableBase {
   const IsolateEncodableDeleteEverything();
 
   @override
-  PreparedStatement buildStatement(Database sql, String tableName) {
-    return sql.prepare('DELETE FROM $tableName'); // WHERE true
+  PreparedStatement buildStatement(Database sql, String tableName, {required DBCommandsBase commands}) {
+    return sql.prepare('DELETE FROM $tableName', persistent: true); // WHERE true
   }
 
   @override
-  void execute(PreparedStatement statement) => statement.execute();
+  void execute(PreparedStatement statement, {required DBCommandsBase commands}) => statement.execute();
 }
 
 class IsolateEncodableDeleteList extends IsolateEncodableBase {
@@ -36,52 +36,55 @@ class IsolateEncodableDeleteList extends IsolateEncodableBase {
   const IsolateEncodableDeleteList(this.keys);
 
   @override
-  PreparedStatement buildStatement(Database sql, String tableName) {
+  PreparedStatement buildStatement(Database sql, String tableName, {required DBCommandsBase commands}) {
     final marks = keys.map((e) => '?').join(', ');
-    return sql.prepare('DELETE FROM $tableName WHERE key IN($marks)');
+    return sql.prepare('DELETE FROM $tableName WHERE key IN($marks)', persistent: true);
   }
 
   @override
-  void execute(PreparedStatement statement) {
+  void execute(PreparedStatement statement, {required DBCommandsBase commands}) {
     statement.execute(keys);
   }
 }
 
 class IsolateEncodableWriteList extends IsolateEncodableBase {
   final List<MapEntry<String, Map<String, dynamic>>> items;
-  const IsolateEncodableWriteList(this.items);
+  final Iterable<String> keys;
+  const IsolateEncodableWriteList(this.items, this.keys);
 
   @override
-  PreparedStatement buildStatement(Database sql, String tableName) {
-    return DBUtils(sql, tableName).buildWriteStatement();
+  PreparedStatement buildStatement(Database sql, String tableName, {required DBCommandsBase commands}) {
+    return _DBCommandsManager(sql, tableName, commands).buildWriteStatement(keys);
   }
 
   @override
-  void execute(PreparedStatement statement) {
-    items.loop((item) => statement.execute([item.key, item.value.encode()]));
+  void execute(PreparedStatement statement, {required DBCommandsBase commands}) {
+    items.loop((item) => statement.execute(commands.objectToWriteParameters(item.key, item.value)));
   }
 
   static IsolateEncodableWriteList fromList<E>(List<E> items, CacheWriteItemToEntryCallback<E> itemToEntry) {
     final entries = <MapEntry<String, Map<String, dynamic>>>[];
+    final keys = <String>{};
     items.loop((e) {
       final entry = itemToEntry(e);
       entries.add(entry);
+      keys.addAll(entry.value.keys);
     });
-    return IsolateEncodableWriteList(entries);
+    return IsolateEncodableWriteList(entries, keys);
   }
 
   static IsolateEncodableWriteList fromIterable<E>(Iterable<E> items, CacheWriteItemToEntryCallback<E> itemToEntry) {
     final entries = <MapEntry<String, Map<String, dynamic>>>[];
+    final keys = <String>{};
     for (final e in items) {
       final entry = itemToEntry(e);
       entries.add(entry);
+      keys.addAll(entry.value.keys);
     }
-    return IsolateEncodableWriteList(entries);
+    return IsolateEncodableWriteList(entries, keys);
   }
 
   static IsolateEncodableWriteList fromEntry(String key, Map<String, dynamic> value) {
-    final entries = <MapEntry<String, Map<String, dynamic>>>[];
-    entries.add(MapEntry(key, value));
-    return IsolateEncodableWriteList(entries);
+    return IsolateEncodableWriteList([MapEntry(key, value)], value.keys);
   }
 }

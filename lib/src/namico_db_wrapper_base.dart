@@ -9,41 +9,90 @@ part of '../namico_db_wrapper.dart';
 /// 1. the future returned will NOT refer to actual completions, but rather the sent message only.
 /// 2. executing multiple async functions simultaneously will be safe, since operations would still be blocked but on another isolate.
 class DBWrapper {
+  /// The sqlite3 object that holds the db.
   late final Database sql;
-  late final String _dbDirectory;
-  final String _dbFileName;
-  final String _dbTableName;
-  final String _extension;
+
+  late final String _dbTableName;
+
   late final _DBIsolateManager _isolateManager;
 
-  late final File file;
+  /// File info for the db.
+  final DbWrapperFileInfo fileInfo;
 
-  DBWrapper.open(String directory, this._dbFileName, {String? encryptionKey, bool createIfNotExist = false})
-      : _extension = encryptionKey != null ? '' : '.db',
-        _dbTableName = '`$_dbFileName`' {
+  /// Defines the columns for the database.
+  ///
+  /// Columns that are added later after the table is already created, will be added inside the db by executing `ALTER TABLE table_name ADD COLUMN column_name`,
+  /// this can be quite an expensive operation depending on how large the db is.
+  ///
+  /// Columns that are removed will not be deleted from the db.
+  final List<DBColumnType>? customTypes;
+
+  final DBCommandsBase _commands;
+
+  late final _DBCommandsManager _commandsManager;
+
+  /// Opens a db by specifying [directory] & [dbFileName] with optional [encryptionKey].
+  ///
+  /// Passing [customTypes] can define how the table looks, otherwise the objects are saved as a json string in one column.
+  DBWrapper.open(
+    String directory,
+    String dbFileName, {
+    String? encryptionKey,
+    bool createIfNotExist = false,
+    this.customTypes,
+  })  : fileInfo = DbWrapperFileInfo.fromInfo(directory: directory, dbFileName: dbFileName, encryptionKey: encryptionKey),
+        _commands = DBCommandsBase.dynamic(customTypes) {
+    _dbTableName = '`${fileInfo.filenameOriginal}`';
+    _openFromInfoInternal(
+      fileInfo: fileInfo,
+      encryptionKey: encryptionKey,
+      createIfNotExist: createIfNotExist,
+      customTypes: customTypes,
+    );
+  }
+
+  /// Opens a db by specifying [fileInfo] with optional [encryptionKey].
+  ///
+  /// Passing [customTypes] can define how the table looks, otherwise the objects are saved as a json string in one column.
+  DBWrapper.openFromInfo({
+    required this.fileInfo,
+    String? encryptionKey,
+    bool createIfNotExist = false,
+    this.customTypes,
+  })  : _dbTableName = '`${fileInfo.filenameOriginal}`',
+        _commands = DBCommandsBase.dynamic(customTypes) {
+    _openFromInfoInternal(
+      fileInfo: fileInfo,
+      encryptionKey: encryptionKey,
+      createIfNotExist: createIfNotExist,
+      customTypes: customTypes,
+    );
+  }
+
+  void _openFromInfoInternal({
+    required DbWrapperFileInfo fileInfo,
+    String? encryptionKey,
+    bool createIfNotExist = false,
+    List<DBColumnType>? customTypes,
+  }) {
     _isOpen = true;
 
-    if (!directory.endsWith(Platform.pathSeparator)) directory += Platform.pathSeparator;
-
-    _dbDirectory = directory;
-
-    final path = "$directory$_dbFileName$_extension";
-    file = File(path);
-    if (createIfNotExist && !file.existsSync()) file.createSync(recursive: true);
-    final uri = Uri.file(path);
+    final dbFile = fileInfo.file;
+    if (createIfNotExist && !dbFile.existsSync()) dbFile.createSync(recursive: true);
+    final uri = Uri.file(dbFile.path);
     final dbOpenUriFinal = "$uri?cache=shared";
     sql = sqlite3.open(dbOpenUriFinal, uri: true);
     sql.prepareDatabase(encryptionKey: encryptionKey);
 
     final tableName = _dbTableName;
-    final utils = DBUtils(sql, tableName);
-    utils.createTable();
-    _readSt = utils.buildReadKeyStatement();
-    _writeSt = utils.buildWriteStatement();
-    _isolateManager = _DBIsolateManager(tableName, dbOpenUriFinal);
+    _commandsManager = _DBCommandsManager(sql, tableName, _commands);
+    _commandsManager.createTable();
+    _readSt = _commandsManager.buildReadKeyStatement();
+    if (_commands is DBCommands) _writeStDefault = _commandsManager.buildWriteStatement(null);
+    _isolateManager = _DBIsolateManager(tableName, dbOpenUriFinal, customTypes);
   }
 
-  late final PreparedStatement _writeSt;
+  PreparedStatement? _writeStDefault;
   late final PreparedStatement _readSt;
   PreparedStatement? _existSt;
 
@@ -53,56 +102,58 @@ class DBWrapper {
   void close() {
     _isOpen = false;
     _readSt.dispose();
-    _writeSt.dispose();
+    _writeStDefault?.dispose();
     _existSt?.dispose();
     sql.dispose();
     _isolateManager.dispose();
   }
 
-  void claimFreeSpace() => sql.execute('VACUUM');
+  void claimFreeSpace() => sql.execute(_commands.vacuumCommand());
 
   Future<void> claimFreeSpaceAsync() => _executeAsyncMODIFY(const IsolateEncodableClaimFreeSpace());
 
   void loadEverything(void Function(Map<String, dynamic> value) onValue) {
-    final res = sql.select('SELECT value FROM $_dbTableName'); //  WHERE true
+    final command = _commands.loadEverythingCommand(_dbTableName);
+    final res = sql.select(command);
     res.rows.loop(
       (row) {
-        final parsed = row.parseRow();
+        final parsed = _commands.parseResults(res);
         if (parsed != null) onValue(parsed);
       },
     );
   }
 
   void loadEverythingKeyed(void Function(String key, Map<String, dynamic> value) onValue) {
-    final res = sql.select('SELECT value,key FROM $_dbTableName'); //  WHERE true
+    final command = _commands.loadEverythingKeyedCommand(_dbTableName);
+    final res = sql.select(command);
+
     res.rows.loop(
       (row) {
-        final key = row[1] as String;
-        final parsed = row.parseRow();
-        if (parsed != null) onValue(key, parsed);
+        try {
+          final parsedKeyed = _commands.parseKeyedResults(res);
+          final parsed = parsedKeyed.map;
+          if (parsed != null) onValue(parsedKeyed.key, parsed);
+        } catch (_) {}
       },
     );
   }
 
   bool containsKey(String key) {
-    _existSt ??= DBUtils(sql, _dbTableName).buildExistStatement();
+    _existSt ??= _commandsManager.buildExistStatement();
     return _existSt?.select([key]).isNotEmpty == true;
   }
 
   Map<String, dynamic>? get(String key) {
     final res = _readSt.select([key]);
-    try {
-      return res.rows.first.parseRow();
-    } catch (_) {}
-    return null;
+    return _commands.parseResults(res);
   }
 
   Future<Map<String, dynamic>?> getAsync(String key) {
     return _readAsync(
-      (readStatement) {
+      (readStatement, utils) {
         final res = readStatement.select([key]);
         try {
-          return res.rows.first.parseRow();
+          return utils.commands.parseResults(res);
         } catch (_) {
           return null;
         }
@@ -112,11 +163,11 @@ class DBWrapper {
 
   Future<List<Map<String, dynamic>>> getAllAsync(List<String> keys) {
     return _readAsync(
-      (readStatement) {
+      (readStatement, utils) {
         final values = <Map<String, dynamic>>[];
         keys.loop((key) {
           final res = readStatement.select([key]);
-          final parsed = res.rows.first.parseRow();
+          final parsed = utils.commands.parseResults(res);
           if (parsed != null) values.add(parsed);
         });
         return values;
@@ -125,7 +176,15 @@ class DBWrapper {
   }
 
   void put(String key, Map<String, dynamic> object) {
-    _writeSt.execute([key, object.encode()]);
+    final params = _commands.objectToWriteParameters(key, object);
+    if (_writeStDefault != null) {
+      _writeStDefault!.execute(params);
+    } else {
+      // `DBCommandsCustom` needs to create it each time, cuz the parameters passed by [object] could not be the same as the default parameters.
+      final statement = _commandsManager.buildWriteStatement(object.keys);
+      statement.execute(params);
+      statement.dispose();
+    }
   }
 
   Future<void> putAsync(String key, Map<String, dynamic> object) {
@@ -145,9 +204,9 @@ class DBWrapper {
 
   void delete(String key) {
     final command = IsolateEncodableDeleteList([key]);
-    final st = command.buildStatement(sql, _dbTableName);
+    final st = command.buildStatement(sql, _dbTableName, commands: _commands);
     try {
-      return command.execute(st);
+      return command.execute(st, commands: _commands);
     } finally {
       st.dispose();
     }
@@ -166,12 +225,12 @@ class DBWrapper {
     return _executeAsyncMODIFY(writeList);
   }
 
-  Future<T> _readAsync<T>(T Function(PreparedStatement readStatement) fn) {
+  Future<T> _readAsync<T>(T Function(PreparedStatement readStatement, _DBCommandsManager utils) fn) {
     return _executeAsyncREAD(
       (db, utils) {
         final st = utils.buildReadKeyStatement();
         try {
-          return fn(st);
+          return fn(st, utils);
         } finally {
           st.dispose();
         }
@@ -179,21 +238,17 @@ class DBWrapper {
     );
   }
 
-  Future<T> _executeAsyncREAD<T>(T Function(Database db, DBUtils utils) fn) {
-    final dbDirectory = _dbDirectory;
-    final dbfilename = _dbFileName;
+  Future<T> _executeAsyncREAD<T>(T Function(Database db, _DBCommandsManager utils) fn) {
+    final customTypes = this.customTypes;
+    final dbFilePath = fileInfo.file.path;
     final dbtablename = _dbTableName;
-    final ext = _extension;
-
     return Isolate.run(
       () {
         sqlopen.open.overrideFor(sqlopen.OperatingSystem.android, sqlcipher.openCipherOnAndroid);
-
-        final path = "$dbDirectory$dbfilename$ext";
-        final uri = Uri.file(path);
+        final uri = Uri.file(dbFilePath);
         final sql = sqlite3.open("$uri?cache=shared", mode: OpenMode.readOnly, uri: true);
-
-        final utils = DBUtils(sql, dbtablename);
+        final commands = DBCommandsBase.dynamic(customTypes);
+        final utils = _DBCommandsManager(sql, dbtablename, commands);
         try {
           return fn(sql, utils);
         } finally {
@@ -208,50 +263,38 @@ class DBWrapper {
   }
 }
 
-extension _ValueParser on List<Object?> {
-  Map<String, dynamic>? parseRow() {
-    try {
-      return jsonDecode(first as String) as Map<String, dynamic>;
-    } catch (_) {}
-    return null;
-  }
-}
-
-extension _ValueEncoder on Map<String, dynamic> {
-  String encode() => jsonEncode(this);
-}
-
-class DBUtils {
+class _DBCommandsManager {
   final Database sql;
   final String tableName;
+  final DBCommandsBase _commands;
 
-  const DBUtils(this.sql, this.tableName);
+  DBCommandsBase get commands => _commands;
+
+  const _DBCommandsManager(
+    this.sql,
+    this.tableName,
+    this._commands,
+  );
 
   void createTable() {
-    return sql.execute('''
-    CREATE TABLE IF NOT EXISTS $tableName (
-      key TEXT NOT NULL UNIQUE,
-      value TEXT NOT NULL,
-      PRIMARY KEY (key)
-    );
-  ''');
+    final command = _commands.createTableCommand(tableName);
+    sql.execute(command);
+    _commands.alterIfRequired(tableName, sql);
   }
 
-  PreparedStatement buildWriteStatement() {
-    return sql.prepare('''
-INSERT INTO $tableName (key, value)
-VALUES (?, ?)
-ON CONFLICT (key) DO UPDATE
-SET value=EXCLUDED.value
-''');
+  PreparedStatement buildWriteStatement(Iterable<String>? keys) {
+    final command = _commands.writeCommand(tableName, keys);
+    return sql.prepare(command, persistent: true);
   }
 
   PreparedStatement buildReadKeyStatement() {
-    return sql.prepare('SELECT value FROM $tableName WHERE key IN (?)');
+    final command = _commands.selectKeyCommand(tableName);
+    return sql.prepare(command, persistent: true);
   }
 
   PreparedStatement buildExistStatement() {
-    return sql.prepare('SELECT 1 FROM $tableName WHERE key IN (?)');
+    final command = _commands.doesKeyExistCommand(tableName);
+    return sql.prepare(command, persistent: true);
   }
 }
 
@@ -281,7 +324,8 @@ extension DatabaseUtils on Database {
 class _DBIsolateManager with PortsProvider<Map> {
   final String tableName;
   final String dbOpenUriFinal;
-  _DBIsolateManager(this.tableName, this.dbOpenUriFinal);
+  final List<DBColumnType>? customTypes;
+  _DBIsolateManager(this.tableName, this.dbOpenUriFinal, this.customTypes);
 
   void dispose() => disposePort();
 
@@ -295,6 +339,7 @@ class _DBIsolateManager with PortsProvider<Map> {
     final params = {
       'port': port,
       'tableName': tableName,
+      'customTypes': customTypes,
       'uriFinal': dbOpenUriFinal,
     };
     return IsolateFunctionReturnBuild(_prepareResourcesAndSearch, params);
@@ -303,17 +348,18 @@ class _DBIsolateManager with PortsProvider<Map> {
   static void _prepareResourcesAndSearch(Map params) async {
     final sendPort = params['port'] as SendPort;
     final tableName = params['tableName'] as String;
+    final customTypes = params['customTypes'] as List<DBColumnType>?;
     final uriFinal = params['uriFinal'] as String;
 
     final recievePort = ReceivePort();
     sendPort.send(recievePort.sendPort);
 
     sqlopen.open.overrideFor(sqlopen.OperatingSystem.android, sqlcipher.openCipherOnAndroid);
-
     final sql = sqlite3.open(uriFinal, mode: OpenMode.readWriteCreate, uri: true);
+    final commands = DBCommandsBase.dynamic(customTypes);
+    final utils = _DBCommandsManager(sql, tableName, commands);
 
-    final utils = DBUtils(sql, tableName);
-    final writeStatement = utils.buildWriteStatement();
+    final PreparedStatement? writeStatementDefault = commands is DBCommands ? utils.buildWriteStatement(null) : null;
 
     // -- start listening
     StreamSubscription? streamSub;
@@ -321,7 +367,7 @@ class _DBIsolateManager with PortsProvider<Map> {
       if (PortsProvider.isDisposeMessage(p)) {
         recievePort.close();
         streamSub?.cancel();
-        writeStatement.dispose();
+        writeStatementDefault?.dispose();
         sql.dispose();
         return;
       }
@@ -329,16 +375,17 @@ class _DBIsolateManager with PortsProvider<Map> {
 
       PreparedStatement statement;
       bool canDisposeStatement;
-      if (command is IsolateEncodableWriteList) {
-        statement = writeStatement;
+      if (command is IsolateEncodableWriteList && writeStatementDefault != null) {
+        // only when `_commands` is `DBCommands`, because `DBCommandsCustom` needs to create it each time
+        statement = writeStatementDefault;
         canDisposeStatement = false;
       } else {
-        statement = command.buildStatement(sql, tableName);
+        statement = command.buildStatement(sql, tableName, commands: commands);
         canDisposeStatement = true;
       }
       try {
         sql.execute('BEGIN;');
-        command.execute(statement);
+        command.execute(statement, commands: commands);
         sql.execute('COMMIT;');
       } catch (e) {
         try {
