@@ -136,4 +136,4 @@ manager.closeAll(); // close all databases opened in the specified directory
 
 
 # LICENSE
-This project is licenced under GPL
+This project is licenced under [BSD 3-Clause License](LICENSE)
