@@ -2,11 +2,12 @@ part of '../namico_db_wrapper.dart';
 
 /// A wrapper around SQLite3 that facilitates readings/insertions/deletions/etc.
 ///
-/// The Columns are always [String] `key` and json-encoded [String] `value`
+/// The columns can be specified using [customTypes] which are pre-defined/dynamically-added columns, otherwise they default to a single json-encoded [String] `value` column.
+/// The id is always a [String] `key`.
 ///
 /// All async functions inside this class run on a separate *single* isolate, using [PortsProvider]
 /// which means:
-/// 1. the future returned will NOT refer to actual completions, but rather the sent message only.
+/// 1. the future returned refers to actual completions, you can safely access the modified table directly after the future returns.
 /// 2. executing multiple async functions simultaneously will be safe, since operations would still be blocked but on another isolate.
 class DBWrapper {
   /// The sqlite3 object that holds the db.
@@ -325,13 +326,25 @@ class _DBIsolateManager with PortsProvider<Map> {
   final String tableName;
   final String dbOpenUriFinal;
   final List<DBColumnType>? customTypes;
-  _DBIsolateManager(this.tableName, this.dbOpenUriFinal, this.customTypes);
+
+  _DBIsolateManager(
+    this.tableName,
+    this.dbOpenUriFinal,
+    this.customTypes,
+  );
+
+  final _completers = <int, Completer<void>?>{};
 
   void dispose() => disposePort();
 
   Future<void> executeIsolate(IsolateEncodableBase command) async {
     if (!isInitialized) await initialize();
-    await sendPort(command);
+    final token = _IsolateMessageToken.create().key;
+    _completers[token]?.complete(); // useless but anyways
+    final completer = _completers[token] = Completer<void>();
+    sendPort([command, token]);
+    await completer.future;
+    _completers[token] = null; // dereferencing
   }
 
   @override
@@ -371,7 +384,10 @@ class _DBIsolateManager with PortsProvider<Map> {
         sql.dispose();
         return;
       }
-      final command = p as IsolateEncodableBase;
+
+      p as List;
+      final command = p[0] as IsolateEncodableBase;
+      final token = p[1] as int;
 
       PreparedStatement statement;
       bool canDisposeStatement;
@@ -394,6 +410,7 @@ class _DBIsolateManager with PortsProvider<Map> {
         rethrow;
       } finally {
         if (canDisposeStatement) statement.dispose();
+        sendPort.send(token);
       }
     });
 
@@ -401,5 +418,14 @@ class _DBIsolateManager with PortsProvider<Map> {
   }
 
   @override
-  void onResult(_) {}
+  void onResult(token) {
+    final completer = _completers[token as int];
+    if (completer != null && completer.isCompleted == false) completer.complete();
+  }
+}
+
+class _IsolateMessageToken {
+  _IsolateMessageToken.create();
+
+  int get key => hashCode;
 }

@@ -41,7 +41,7 @@ void main() {
     });
   });
   group('Custom DB tests', () {
-    test('read/write', () {
+    test('read/write', () async {
       open.overrideFor(OperatingSystem.android, openCipherOnAndroid);
       final dir = '${Directory.current.path}${Platform.pathSeparator}db_test';
       final customTypes = [
@@ -79,12 +79,12 @@ void main() {
       final dfvUsername = 'darkchoco';
       final dfvNickname = 'coolahhmaster';
 
-      dbwrapper.put('_', {
+      await dbwrapper.putAsync('_', {
         'username': dfvUsername,
         'nickname': dfvNickname,
         'is_cool': true,
       });
-      final res = dbwrapper.get('_');
+      final res = await dbwrapper.getAsync('_');
       print(res);
       expect(res != null, true);
       expect(res!['username'], dfvUsername);
