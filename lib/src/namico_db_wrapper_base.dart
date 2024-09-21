@@ -32,18 +32,18 @@ class DBWrapper {
 
   late final _DBCommandsManager _commandsManager;
 
-  /// Opens a db by specifying [directory] & [dbFileName] with optional [encryptionKey].
+  /// Opens a db by specifying [directory] & [dbName] with optional [encryptionKey].
   ///
   /// Passing [customTypes] can define how the table looks, otherwise the objects are saved as a json string in one column.
   DBWrapper.open(
     String directory,
-    String dbFileName, {
+    String dbName, {
     String? encryptionKey,
     bool createIfNotExist = false,
     this.customTypes,
-  })  : fileInfo = DbWrapperFileInfo.fromInfo(directory: directory, dbFileName: dbFileName, encryptionKey: encryptionKey),
+  })  : fileInfo = DbWrapperFileInfo(directory: directory, dbName: dbName, encryptionKey: encryptionKey),
         _commands = DBCommandsBase.dynamic(customTypes) {
-    _dbTableName = '`${fileInfo.filenameOriginal}`';
+    _dbTableName = '`${fileInfo.dbName}`';
     _openFromInfoInternal(
       fileInfo: fileInfo,
       encryptionKey: encryptionKey,
@@ -60,7 +60,7 @@ class DBWrapper {
     String? encryptionKey,
     bool createIfNotExist = false,
     this.customTypes,
-  })  : _dbTableName = '`${fileInfo.filenameOriginal}`',
+  })  : _dbTableName = '`${fileInfo.dbName}`',
         _commands = DBCommandsBase.dynamic(customTypes) {
     _openFromInfoInternal(
       fileInfo: fileInfo,
@@ -355,10 +355,10 @@ class _DBIsolateManager with PortsProvider<Map> {
       'customTypes': customTypes,
       'uriFinal': dbOpenUriFinal,
     };
-    return IsolateFunctionReturnBuild(_prepareResourcesAndSearch, params);
+    return IsolateFunctionReturnBuild(_prepareResourcesAndListen, params);
   }
 
-  static void _prepareResourcesAndSearch(Map params) async {
+  static void _prepareResourcesAndListen(Map params) async {
     final sendPort = params['port'] as SendPort;
     final tableName = params['tableName'] as String;
     final customTypes = params['customTypes'] as List<DBColumnType>?;

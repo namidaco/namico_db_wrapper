@@ -13,7 +13,7 @@ enum DBColumnTypeEnum {
   /// Equivalent to `List<int>`.
   intlist('BLOB'),
 
-  /// Equivalent to `bool`. Booleans are saved as 0/1
+  /// Equivalent to `bool`. Booleans are saved as 0/1.
   bool('BOOL');
 
   final String dbText;

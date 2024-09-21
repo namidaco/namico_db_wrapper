@@ -5,28 +5,28 @@ part of '../../namico_db_wrapper.dart';
 class DbWrapperFileInfo {
   final File file;
   final String directory;
-  final String filenameOriginal;
+  final String dbName;
   final String filenameActual;
   final String extension;
 
-  const DbWrapperFileInfo({
+  const DbWrapperFileInfo._({
     required this.file,
     required this.directory,
-    required this.filenameOriginal,
+    required this.dbName,
     required this.filenameActual,
     required this.extension,
   });
 
-  factory DbWrapperFileInfo.fromInfo({required String directory, required String dbFileName, String? encryptionKey}) {
+  factory DbWrapperFileInfo({required String directory, required String dbName, String? encryptionKey}) {
     if (!directory.endsWith(Platform.pathSeparator)) directory += Platform.pathSeparator;
     final extension = encryptionKey != null ? '' : '.db';
-    final actualFilename = '$dbFileName$extension';
+    final actualFilename = '$dbName$extension';
     final path = "$directory$actualFilename";
     final file = File(path);
 
-    return DbWrapperFileInfo(
+    return DbWrapperFileInfo._(
       directory: directory,
-      filenameOriginal: dbFileName,
+      dbName: dbName,
       filenameActual: actualFilename,
       extension: extension,
       file: file,
@@ -35,6 +35,6 @@ class DbWrapperFileInfo {
 
   @override
   String toString() {
-    return 'DbWrapperFileInfo(file: $file, directory: $directory, filenameOriginal: $filenameOriginal, filenameActual: $filenameActual, extension: $extension)';
+    return 'DbWrapperFileInfo(file: $file, directory: $directory, dbName: $dbName, filenameActual: $filenameActual, extension: $extension)';
   }
 }
