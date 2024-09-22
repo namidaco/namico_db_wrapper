@@ -190,19 +190,19 @@ class DBWrapper {
     );
   }
 
-  void put(String key, Map<String, dynamic> object) {
+  void put(String key, Map<String, dynamic>? object) {
     final params = _commands.objectToWriteParameters(key, object);
     if (_writeStDefault != null) {
       _writeStDefault!.execute(params);
     } else {
       // `DBCommandsCustom` needs to create it each time, cuz the parameters passed by [object] could not be the same as the default parameters.
-      final statement = _commandsManager.buildWriteStatement(object.keys);
+      final statement = _commandsManager.buildWriteStatement(object?.keys);
       statement.execute(params);
       statement.dispose();
     }
   }
 
-  Future<void> putAsync(String key, Map<String, dynamic> object) {
+  Future<void> putAsync(String key, Map<String, dynamic>? object) {
     final entries = IsolateEncodableWriteList.fromEntry(key, object);
     return _writeAsync(entries);
   }

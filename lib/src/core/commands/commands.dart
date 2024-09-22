@@ -33,8 +33,8 @@ final class DBCommands extends DBCommandsBase {
   }
 
   @override
-  List<dynamic> objectToWriteParameters(String key, Map<String, dynamic> object) {
-    return [key, jsonEncode(object)];
+  List<dynamic> objectToWriteParameters(String key, Map<String, dynamic>? object) {
+    return [key, object == null ? null : jsonEncode(object)];
   }
 
   @override
@@ -47,7 +47,7 @@ final class DBCommands extends DBCommandsBase {
     return '''
 CREATE TABLE IF NOT EXISTS $tableName (
   key TEXT NOT NULL UNIQUE,
-  value TEXT NOT NULL,
+  value TEXT,
   PRIMARY KEY (key)
 );
   ''';

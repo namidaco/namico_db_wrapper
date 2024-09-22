@@ -23,6 +23,7 @@ final class DBCommandsCustom extends DBCommandsBase {
       var columnName = columns[i];
       map[columnName] = value;
     }
+    if (map.isEmpty) return null;
     return map;
   }
 
@@ -39,8 +40,10 @@ final class DBCommandsCustom extends DBCommandsBase {
   }
 
   @override
-  List<dynamic> objectToWriteParameters(String key, Map<String, dynamic> object) {
+  List<dynamic> objectToWriteParameters(String key, Map<String, dynamic>? object) {
     final params = <dynamic>[key];
+    if (object == null) return params;
+
     customTypes.loop(
       (item) {
         final value = object[item.name];
@@ -99,11 +102,19 @@ CREATE TABLE IF NOT EXISTS $tableName (
 
   @override
   String writeCommand(String tableName, Iterable<String>? keys) {
+    if (keys == null) {
+      // insert key only if no column keys provided
+      return '''
+INSERT INTO $tableName (key)
+VALUES (?)
+  ''';
+    }
+
     final columnsNamesBuffer = StringBuffer();
     final columnsParamsBuffer = StringBuffer();
     final conflictsBuffer = StringBuffer();
     bool isFirst = true;
-    for (final name in keys!) {
+    for (final name in keys) {
       columnsNamesBuffer.write(', $name');
       columnsParamsBuffer.write(', ?');
       if (!isFirst) conflictsBuffer.write(', ');

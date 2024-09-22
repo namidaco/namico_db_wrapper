@@ -48,8 +48,8 @@ class IsolateEncodableDeleteList extends IsolateEncodableBase {
 }
 
 class IsolateEncodableWriteList extends IsolateEncodableBase {
-  final List<MapEntry<String, Map<String, dynamic>>> items;
-  final Iterable<String> keys;
+  final List<MapEntry<String, Map<String, dynamic>?>> items;
+  final Iterable<String>? keys;
   const IsolateEncodableWriteList(this.items, this.keys);
 
   @override
@@ -63,28 +63,30 @@ class IsolateEncodableWriteList extends IsolateEncodableBase {
   }
 
   static IsolateEncodableWriteList fromList<E>(List<E> items, CacheWriteItemToEntryCallback<E> itemToEntry) {
-    final entries = <MapEntry<String, Map<String, dynamic>>>[];
+    final entries = <MapEntry<String, Map<String, dynamic>?>>[];
     final keys = <String>{};
     items.loop((e) {
       final entry = itemToEntry(e);
       entries.add(entry);
-      keys.addAll(entry.value.keys);
+      final subkeys = entry.value?.keys;
+      if (subkeys != null) keys.addAll(subkeys);
     });
     return IsolateEncodableWriteList(entries, keys);
   }
 
   static IsolateEncodableWriteList fromIterable<E>(Iterable<E> items, CacheWriteItemToEntryCallback<E> itemToEntry) {
-    final entries = <MapEntry<String, Map<String, dynamic>>>[];
+    final entries = <MapEntry<String, Map<String, dynamic>?>>[];
     final keys = <String>{};
     for (final e in items) {
       final entry = itemToEntry(e);
       entries.add(entry);
-      keys.addAll(entry.value.keys);
+      final subkeys = entry.value?.keys;
+      if (subkeys != null) keys.addAll(subkeys);
     }
     return IsolateEncodableWriteList(entries, keys);
   }
 
-  static IsolateEncodableWriteList fromEntry(String key, Map<String, dynamic> value) {
-    return IsolateEncodableWriteList([MapEntry(key, value)], value.keys);
+  static IsolateEncodableWriteList fromEntry(String key, Map<String, dynamic>? value) {
+    return IsolateEncodableWriteList([MapEntry(key, value)], value?.keys);
   }
 }

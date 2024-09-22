@@ -13,7 +13,7 @@ abstract interface class DBCommandsBase {
 
   Map<String, dynamic>? parseRow(List<String> columnNames, List<Object?> row);
   DBKeyedResults? parseKeyedRow(List<String> columnNames, List<Object?> row);
-  List<dynamic> objectToWriteParameters(String key, Map<String, dynamic> object);
+  List<dynamic> objectToWriteParameters(String key, Map<String, dynamic>? object);
 
   String createTableCommand(String tableName);
   String selectKeyCommand(String tableName);
