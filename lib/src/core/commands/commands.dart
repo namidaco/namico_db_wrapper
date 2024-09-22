@@ -14,18 +14,18 @@ final class DBCommands extends DBCommandsBase {
   }
 
   @override
-  Map<String, dynamic>? parseResults(ResultSet result) {
+  Map<String, dynamic>? parseRow(List<String> columnNames, List<Object?> row) {
     try {
-      return jsonDecode(result.first as String) as Map<String, dynamic>;
+      var jsonString = row.firstOrNull;
+      return jsonString is String ? jsonDecode(jsonString) as Map<String, dynamic>? : null;
     } catch (_) {}
     return null;
   }
 
   @override
-  DBKeyedResults? parseKeyedResults(ResultSet result) {
-    final resmap = parseResults(result);
-    if (resmap == null) return null;
-    final key = result.rows[1] as String;
+  DBKeyedResults? parseKeyedRow(List<String> columnNames, List<Object?> row) {
+    final resmap = parseRow(columnNames, row);
+    final key = row[1] as String;
     return DBKeyedResults(
       key: key,
       map: resmap,

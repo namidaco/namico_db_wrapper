@@ -116,9 +116,10 @@ class DBWrapper {
   void loadEverything(void Function(Map<String, dynamic> value) onValue) {
     final command = _commands.loadEverythingCommand(_dbTableName);
     final res = sql.select(command);
+    final columnNames = res.columnNames;
     res.rows.loop(
       (row) {
-        final parsed = _commands.parseResults(res);
+        final parsed = _commands.parseRow(columnNames, row);
         if (parsed != null) onValue(parsed);
       },
     );
@@ -127,11 +128,11 @@ class DBWrapper {
   void loadEverythingKeyed(void Function(String key, Map<String, dynamic> value) onValue) {
     final command = _commands.loadEverythingKeyedCommand(_dbTableName);
     final res = sql.select(command);
-
+    final columnNames = res.columnNames;
     res.rows.loop(
       (row) {
         try {
-          final parsedKeyed = _commands.parseKeyedResults(res);
+          final parsedKeyed = _commands.parseKeyedRow(columnNames, row);
           if (parsedKeyed != null) {
             final parsed = parsedKeyed.map;
             if (parsed != null) onValue(parsedKeyed.key, parsed);
@@ -148,15 +149,22 @@ class DBWrapper {
 
   Map<String, dynamic>? get(String key) {
     final res = _readSt.select([key]);
-    return _commands.parseResults(res);
+
+    final row = res.rows.firstOrNull;
+    if (row == null) return null;
+    final columnNames = res.columnNames;
+    return _commands.parseRow(columnNames, row);
   }
 
   Future<Map<String, dynamic>?> getAsync(String key) {
     return _readAsync(
       (readStatement, utils) {
         final res = readStatement.select([key]);
+        final row = res.rows.firstOrNull;
+        if (row == null) return null;
         try {
-          return utils.commands.parseResults(res);
+          final columnNames = res.columnNames;
+          return utils.commands.parseRow(columnNames, row);
         } catch (_) {
           return null;
         }
@@ -170,8 +178,12 @@ class DBWrapper {
         final values = <Map<String, dynamic>>[];
         keys.loop((key) {
           final res = readStatement.select([key]);
-          final parsed = utils.commands.parseResults(res);
-          if (parsed != null) values.add(parsed);
+          final row = res.rows.firstOrNull;
+          if (row != null) {
+            final columnNames = res.columnNames;
+            final parsed = utils.commands.parseRow(columnNames, row);
+            if (parsed != null) values.add(parsed);
+          }
         });
         return values;
       },

@@ -11,8 +11,8 @@ abstract interface class DBCommandsBase {
   String loadEverythingCommand(String tableName);
   String loadEverythingKeyedCommand(String tableName);
 
-  Map<String, dynamic>? parseResults(ResultSet result);
-  DBKeyedResults? parseKeyedResults(ResultSet result);
+  Map<String, dynamic>? parseRow(List<String> columnNames, List<Object?> row);
+  DBKeyedResults? parseKeyedRow(List<String> columnNames, List<Object?> row);
   List<dynamic> objectToWriteParameters(String key, Map<String, dynamic> object);
 
   String createTableCommand(String tableName);
