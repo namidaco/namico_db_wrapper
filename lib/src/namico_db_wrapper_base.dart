@@ -173,18 +173,18 @@ class DBWrapper {
   }
 
   Future<List<Map<String, dynamic>>> getAllAsync(List<String> keys) {
-    return _readAsync(
-      (readStatement, utils) {
+    return _readAllAsync(
+      keys.length,
+      (readStatementAll, utils) {
         final values = <Map<String, dynamic>>[];
-        keys.loop((key) {
-          final res = readStatement.select([key]);
-          final row = res.rows.firstOrNull;
-          if (row != null) {
+        final res = readStatementAll.select(keys);
+        res.rows.loop(
+          (row) {
             final columnNames = res.columnNames;
             final parsed = utils.commands.parseRow(columnNames, row);
             if (parsed != null) values.add(parsed);
-          }
-        });
+          },
+        );
         return values;
       },
     );
@@ -240,10 +240,23 @@ class DBWrapper {
     return _executeAsyncMODIFY(writeList);
   }
 
-  Future<T> _readAsync<T>(T Function(PreparedStatement readStatement, _DBCommandsManager utils) fn) {
+  Future<T> _readAsync<T>(T Function(PreparedStatement readStatementSingle, _DBCommandsManager utils) fn) {
     return _executeAsyncREAD(
       (db, utils) {
         final st = utils.buildReadKeyStatement();
+        try {
+          return fn(st, utils);
+        } finally {
+          st.dispose();
+        }
+      },
+    );
+  }
+
+  Future<T> _readAllAsync<T>(int count, T Function(PreparedStatement readStatementAll, _DBCommandsManager utils) fn) {
+    return _executeAsyncREAD(
+      (db, utils) {
+        final st = utils.buildReadKeysAllStatement(count);
         try {
           return fn(st, utils);
         } finally {
@@ -304,6 +317,11 @@ class _DBCommandsManager {
 
   PreparedStatement buildReadKeyStatement() {
     final command = _commands.selectKeyCommand(tableName);
+    return sql.prepare(command, persistent: true);
+  }
+
+  PreparedStatement buildReadKeysAllStatement(int keysCount) {
+    final command = _commands.selectKeysAllCommand(tableName, keysCount);
     return sql.prepare(command, persistent: true);
   }
 

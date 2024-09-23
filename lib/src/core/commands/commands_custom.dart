@@ -59,6 +59,13 @@ final class DBCommandsCustom extends DBCommandsBase {
   }
 
   @override
+  String selectKeysAllCommand(String tableName, int keysCount) {
+    final buffer = StringBuffer('SELECT * FROM $tableName WHERE key IN');
+    DBCommandsBase.writeParameterMarksInBraces(buffer, keysCount);
+    return buffer.toString();
+  }
+
+  @override
   String createTableCommand(String tableName) {
     return '''
 CREATE TABLE IF NOT EXISTS $tableName (

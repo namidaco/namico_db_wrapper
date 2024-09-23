@@ -37,8 +37,9 @@ class IsolateEncodableDeleteList extends IsolateEncodableBase {
 
   @override
   PreparedStatement buildStatement(Database sql, String tableName, {required DBCommandsBase commands}) {
-    final marks = keys.map((e) => '?').join(', ');
-    return sql.prepare('DELETE FROM $tableName WHERE key IN($marks)', persistent: true);
+    final buffer = StringBuffer('DELETE FROM $tableName WHERE key IN');
+    DBCommandsBase.writeParameterMarksInBraces(buffer, keys.length);
+    return sql.prepare(buffer.toString(), persistent: true);
   }
 
   @override

@@ -17,6 +17,22 @@ void main() {
       print(res);
       expect(res != null, true);
     });
+
+    test('read/write bulk', () async {
+      NamicoDBWrapper.initialize();
+      final dir = '${Directory.current.path}${Platform.pathSeparator}db_test';
+      Directory(dir).createSync();
+      final dbwrapper = DBWrapper.open(dir, '_-test-_');
+
+      dbwrapper.put('_1', {'title': 'item1'});
+      dbwrapper.put('_2', {'title': 'item2'});
+      dbwrapper.put('_3', {'title': 'item3'});
+      final res = await dbwrapper.getAllAsync(['_1', '_2', 'non_existent', '_3']);
+      print(res);
+      expect(res.isNotEmpty, true);
+      expect(res.length, 3);
+    });
+
     test('concurrent writing', () async {
       Future<void> preventIsolateClosing() => Future.delayed(Duration(seconds: 1));
       NamicoDBWrapper.initialize();

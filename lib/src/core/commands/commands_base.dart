@@ -17,10 +17,21 @@ abstract interface class DBCommandsBase {
 
   String createTableCommand(String tableName);
   String selectKeyCommand(String tableName);
+  String selectKeysAllCommand(String tableName, int keysCount);
   String doesKeyExistCommand(String tableName) => 'SELECT 1 FROM $tableName WHERE key IN (?)';
   String writeCommand(String tableName, Iterable<String>? keys);
   String vacuumCommand() => 'VACUUM';
 
   /// Alters the table by adding columns if required.
   void alterIfRequired(String tableName, Database sql);
+
+  static void writeParameterMarksInBraces(StringBuffer buffer, int count) {
+    buffer.write(' (');
+    while (count > 1) {
+      buffer.write('?, ');
+      count--;
+    }
+    buffer.write('?');
+    buffer.write(')');
+  }
 }
