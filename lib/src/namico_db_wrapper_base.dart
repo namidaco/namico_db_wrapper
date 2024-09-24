@@ -156,38 +156,16 @@ class DBWrapper {
     return _commands.parseRow(columnNames, row);
   }
 
-  Future<Map<String, dynamic>?> getAsync(String key) {
-    return _readAsync(
-      (readStatement, utils) {
-        final res = readStatement.select([key]);
-        final row = res.rows.firstOrNull;
-        if (row == null) return null;
-        try {
-          final columnNames = res.columnNames;
-          return utils.commands.parseRow(columnNames, row);
-        } catch (_) {
-          return null;
-        }
-      },
-    );
+  Future<Map<String, dynamic>?> getAsync(String key) async {
+    final command = IsolateEncodableReadKey(key);
+    final res = await _executeAsync(command);
+    return res as Map<String, dynamic>?;
   }
 
-  Future<List<Map<String, dynamic>>> getAllAsync(List<String> keys) {
-    return _readAllAsync(
-      keys.length,
-      (readStatementAll, utils) {
-        final values = <Map<String, dynamic>>[];
-        final res = readStatementAll.select(keys);
-        res.rows.loop(
-          (row) {
-            final columnNames = res.columnNames;
-            final parsed = utils.commands.parseRow(columnNames, row);
-            if (parsed != null) values.add(parsed);
-          },
-        );
-        return values;
-      },
-    );
+  Future<List<Map<String, dynamic>>> getAllAsync(List<String> keys) async {
+    final command = IsolateEncodableReadList(keys);
+    final res = await _executeAsync(command);
+    return res as List<Map<String, dynamic>>;
   }
 
   void put(String key, Map<String, dynamic>? object) {
@@ -229,64 +207,18 @@ class DBWrapper {
 
   Future<void> deleteAsync(String key) {
     final command = IsolateEncodableDeleteList([key]);
-    return _executeAsyncMODIFY(command);
+    return _executeAsync(command);
   }
 
   Future<void> deleteEverything() {
-    return _executeAsyncMODIFY(const IsolateEncodableDeleteEverything());
+    return _executeAsync(const IsolateEncodableDeleteEverything());
   }
 
   Future<void> _writeAsync(IsolateEncodableWriteList writeList) {
-    return _executeAsyncMODIFY(writeList);
+    return _executeAsync(writeList);
   }
 
-  Future<T> _readAsync<T>(T Function(PreparedStatement readStatementSingle, _DBCommandsManager utils) fn) {
-    return _executeAsyncREAD(
-      (db, utils) {
-        final st = utils.buildReadKeyStatement();
-        try {
-          return fn(st, utils);
-        } finally {
-          st.dispose();
-        }
-      },
-    );
-  }
-
-  Future<T> _readAllAsync<T>(int count, T Function(PreparedStatement readStatementAll, _DBCommandsManager utils) fn) {
-    return _executeAsyncREAD(
-      (db, utils) {
-        final st = utils.buildReadKeysAllStatement(count);
-        try {
-          return fn(st, utils);
-        } finally {
-          st.dispose();
-        }
-      },
-    );
-  }
-
-  Future<T> _executeAsyncREAD<T>(T Function(Database db, _DBCommandsManager utils) fn) {
-    final customTypes = this.customTypes;
-    final dbFilePath = fileInfo.file.path;
-    final dbtablename = _dbTableName;
-    return Isolate.run(
-      () {
-        NamicoDBWrapper.initialize();
-        final uri = Uri.file(dbFilePath);
-        final sql = sqlite3.open("$uri?cache=shared", mode: OpenMode.readOnly, uri: true);
-        final commands = DBCommandsBase.dynamic(customTypes);
-        final utils = _DBCommandsManager(sql, dbtablename, commands);
-        try {
-          return fn(sql, utils);
-        } finally {
-          sql.dispose();
-        }
-      },
-    );
-  }
-
-  Future<void> _executeAsyncMODIFY(IsolateEncodableBase command) {
+  Future<dynamic> _executeAsync(IsolateEncodableBase command) {
     return _isolateManager.executeIsolate(command);
   }
 }
@@ -365,18 +297,19 @@ class _DBIsolateManager with PortsProvider<Map> {
     this.customTypes,
   );
 
-  final _completers = <int, Completer<void>?>{};
+  final _completers = <int, Completer<dynamic>?>{};
 
   void dispose() => disposePort();
 
-  Future<void> executeIsolate(IsolateEncodableBase command) async {
+  Future<dynamic> executeIsolate(IsolateEncodableBase command) async {
     if (!isInitialized) await initialize();
     final token = _IsolateMessageToken.create().key;
-    _completers[token]?.complete(); // useless but anyways
-    final completer = _completers[token] = Completer<void>();
+    _completers[token]?.complete(null); // useless but anyways
+    final completer = _completers[token] = Completer<dynamic>();
     sendPort([command, token]);
-    await completer.future;
+    var res = await completer.future;
     _completers[token] = null; // dereferencing
+    return res;
   }
 
   @override
@@ -431,9 +364,10 @@ class _DBIsolateManager with PortsProvider<Map> {
         statement = command.buildStatement(sql, tableName, commands: commands);
         canDisposeStatement = true;
       }
+      dynamic readRes;
       try {
         sql.execute('BEGIN;');
-        command.execute(statement, commands: commands);
+        readRes = command.execute(statement, commands: commands);
         sql.execute('COMMIT;');
       } catch (e) {
         try {
@@ -442,7 +376,7 @@ class _DBIsolateManager with PortsProvider<Map> {
         rethrow;
       } finally {
         if (canDisposeStatement) statement.dispose();
-        sendPort.send(token);
+        sendPort.send([token, readRes]);
       }
     });
 
@@ -450,9 +384,10 @@ class _DBIsolateManager with PortsProvider<Map> {
   }
 
   @override
-  void onResult(token) {
-    final completer = _completers[token as int];
-    if (completer != null && completer.isCompleted == false) completer.complete();
+  void onResult(result) {
+    final token = result[0] as int;
+    final completer = _completers[token];
+    if (completer != null && completer.isCompleted == false) completer.complete(result[1]);
   }
 }
 

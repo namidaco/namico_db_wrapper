@@ -17,6 +17,7 @@ part 'src/class/db_column_type.dart';
 part 'src/class/db_keyed_result.dart';
 part 'src/class/db_wrapper_file_info.dart';
 part 'src/class/isolate_encodable_write_list.dart';
+part 'src/class/isolate_encodable_read.dart';
 part 'src/core/commands/commands_base.dart';
 part 'src/core/enum.dart';
 part 'src/db_core_functions.dart';

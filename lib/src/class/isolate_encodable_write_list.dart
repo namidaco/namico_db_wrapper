@@ -4,7 +4,7 @@ abstract class IsolateEncodableBase {
   const IsolateEncodableBase();
 
   PreparedStatement buildStatement(Database sql, String tableName, {required DBCommandsBase commands});
-  void execute(PreparedStatement statement, {required DBCommandsBase commands});
+  dynamic execute(PreparedStatement statement, {required DBCommandsBase commands});
 }
 
 class IsolateEncodableClaimFreeSpace extends IsolateEncodableBase {
