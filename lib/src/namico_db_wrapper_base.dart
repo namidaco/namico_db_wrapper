@@ -154,10 +154,9 @@ class DBWrapper {
   Map<String, dynamic>? get(String key) {
     final res = _readSt.select([key]);
 
-    final row = res.rows.firstOrNull;
-    if (row == null) return null;
-    final columnNames = res.columnNames;
-    return _commands.parseRow(columnNames, row);
+  List<Map<String, dynamic>> getAll(List<String> keys) {
+    final command = IsolateEncodableReadList(keys);
+    return command.execute(_readSt, commands: _commands);
   }
 
   Future<Map<String, dynamic>?> getAsync(String key) async {
