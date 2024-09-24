@@ -109,6 +109,10 @@ class DBWrapper {
     _isolateManager.dispose();
   }
 
+  /// Early prepare the isolate channel responsible for async methods.
+  /// This is not really needed unless you want to speed up first time execution.
+  Future<void> prepareIsolateChannel() => _isolateManager.initialize();
+
   void claimFreeSpace() => sql.execute(_commands.vacuumCommand());
 
   Future<void> claimFreeSpaceAsync() => _executeAsyncMODIFY(const IsolateEncodableClaimFreeSpace());
