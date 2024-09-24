@@ -97,9 +97,11 @@ class DBWrapper {
   late final PreparedStatement _readSt;
   PreparedStatement? _existSt;
 
+  /// Wether the db is currently open or not.
   bool get isOpen => _isOpen;
   bool _isOpen = false;
 
+  /// close the db and free allocated resources.
   void close() {
     _isOpen = false;
     _readSt.dispose();
@@ -113,10 +115,13 @@ class DBWrapper {
   /// This is not really needed unless you want to speed up first time execution.
   Future<void> prepareIsolateChannel() => _isolateManager.initialize();
 
+  /// Claim free space after duplicate inserts or deletions. this can be an expensive operation
   void claimFreeSpace() => sql.execute(_commands.vacuumCommand());
 
-  Future<void> claimFreeSpaceAsync() => _executeAsyncMODIFY(const IsolateEncodableClaimFreeSpace());
+  /// Async version of [claimFreeSpace]
+  Future<void> claimFreeSpaceAsync() => _executeAsync(const IsolateEncodableClaimFreeSpace());
 
+  /// Load all rows inside the db. if [customTypes] are provided then the key will exist in the map provided, otherwise see [loadEverythingKeyed].
   void loadEverything(void Function(Map<String, dynamic> value) onValue) {
     final command = _commands.loadEverythingCommand(_dbTableName);
     final res = sql.select(command);
@@ -129,6 +134,7 @@ class DBWrapper {
     );
   }
 
+  /// Load all rows inside the db with their key.
   void loadEverythingKeyed(void Function(String key, Map<String, dynamic> value) onValue) {
     final command = _commands.loadEverythingKeyedCommand(_dbTableName);
     final res = sql.select(command);
@@ -146,31 +152,41 @@ class DBWrapper {
     );
   }
 
+  /// Wether the db contains [key] or not. note that null values are allowed so the key may exist with a null value.
+  /// In that case you might need to check the actual value by [get].
   bool containsKey(String key) {
     _existSt ??= _commandsManager.buildExistStatement();
     return _existSt?.select([key]).isNotEmpty == true;
   }
 
+  /// get a value of a key. this can return null if key doesn't exist or value is null.
+  /// use [containsKey] if you want to check the key itself
   Map<String, dynamic>? get(String key) {
-    final res = _readSt.select([key]);
+    final command = IsolateEncodableReadKey(key);
+    return command.execute(_readSt, commands: _commands);
+  }
 
   List<Map<String, dynamic>> getAll(List<String> keys) {
     final command = IsolateEncodableReadList(keys);
     return command.execute(_readSt, commands: _commands);
   }
 
+  /// async version of [get].
   Future<Map<String, dynamic>?> getAsync(String key) async {
     final command = IsolateEncodableReadKey(key);
     final res = await _executeAsync(command);
     return res as Map<String, dynamic>?;
   }
 
+  /// async version of [getAll].
   Future<List<Map<String, dynamic>>> getAllAsync(List<String> keys) async {
     final command = IsolateEncodableReadList(keys);
     final res = await _executeAsync(command);
     return res as List<Map<String, dynamic>>;
   }
 
+  /// puts a value [object] to a [key] in the db. if the key already exists then it's overriden.
+  /// if [customTypes] are provided then the keys of [object] should be the same as the column names of [customTypes].
   void put(String key, Map<String, dynamic>? object) {
     final params = _commands.objectToWriteParameters(key, object);
     if (_writeStDefault != null) {
@@ -183,21 +199,25 @@ class DBWrapper {
     }
   }
 
+  /// async version of [put].
   Future<void> putAsync(String key, Map<String, dynamic>? object) {
     final entries = IsolateEncodableWriteList.fromEntry(key, object);
     return _writeAsync(entries);
   }
 
+  /// same as [put] but for multiple values.
   Future<void> putAllAsync<E>(List<E> items, CacheWriteItemToEntryCallback<E> itemToEntry) {
     final entries = IsolateEncodableWriteList.fromList(items, itemToEntry);
     return _writeAsync(entries);
   }
 
+  /// same as [putAllAsync] except that [putAllAsync] is better with lists.
   Future<void> putAllIterableAsync<E>(Iterable<E> items, CacheWriteItemToEntryCallback<E> itemToEntry) {
     final entries = IsolateEncodableWriteList.fromIterable(items, itemToEntry);
     return _writeAsync(entries);
   }
 
+  /// delete a single row inside the db.
   void delete(String key) {
     final command = IsolateEncodableDeleteList([key]);
     final st = command.buildStatement(sql, _dbTableName, commands: _commands);
@@ -208,11 +228,13 @@ class DBWrapper {
     }
   }
 
+  /// async version of [delete].
   Future<void> deleteAsync(String key) {
     final command = IsolateEncodableDeleteList([key]);
     return _executeAsync(command);
   }
 
+  /// delete all rows inside the db.
   Future<void> deleteEverything() {
     return _executeAsync(const IsolateEncodableDeleteEverything());
   }
