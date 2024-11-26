@@ -399,14 +399,7 @@ class _DBIsolateManager with PortsProvider<Map> {
         }
       } else {
         try {
-          sql.execute('BEGIN;');
           readRes = command.execute(statement, commands: commands);
-          sql.execute('COMMIT;');
-        } catch (e) {
-          try {
-            sql.execute('ROLLBACK;');
-          } catch (_) {}
-          rethrow;
         } finally {
           if (canDisposeStatement) statement.dispose();
           sendPort.send([token, readRes]);
