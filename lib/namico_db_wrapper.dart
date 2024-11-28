@@ -2,6 +2,7 @@ library namico_db_wrapper;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -28,6 +29,9 @@ typedef CacheWriteItemToEntryCallback<E> = MapEntry<String, Map<String, dynamic>
 
 class NamicoDBWrapper {
   static initialize() {
-    sqlopen.open.overrideFor(sqlopen.OperatingSystem.android, sqlcipher.openCipherOnAndroid);
+    DynamicLibrary? lib;
+    sqlopen.open.overrideFor(sqlopen.OperatingSystem.android, () {
+      return lib ??= sqllibs.openCipherOnAndroid();
+    });
   }
 }
