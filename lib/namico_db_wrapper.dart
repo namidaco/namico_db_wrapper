@@ -6,7 +6,7 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 
-import 'package:sqlcipher_flutter_libs/sqlcipher_flutter_libs.dart' as sqlcipher;
+import 'package:sqlcipher_flutter_libs/sqlcipher_flutter_libs.dart' as sqllibs;
 import 'package:sqlite3/open.dart' as sqlopen;
 import 'package:sqlite3/sqlite3.dart';
 
