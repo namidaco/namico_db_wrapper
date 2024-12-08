@@ -17,11 +17,13 @@ part 'package:namico_db_wrapper/src/core/commands/commands_custom.dart';
 part 'src/class/db_column_type.dart';
 part 'src/class/db_keyed_result.dart';
 part 'src/class/db_wrapper_file_info.dart';
-part 'src/class/isolate_encodable_write_list.dart';
 part 'src/class/isolate_encodable_read.dart';
+part 'src/class/isolate_encodable_write_list.dart';
 part 'src/core/commands/commands_base.dart';
 part 'src/core/enum.dart';
 part 'src/db_core_functions.dart';
+part 'src/db_wrapper_auto_disposable.dart';
+part 'src/db_wrapper_interface.dart';
 part 'src/db_wrapper_main.dart';
 part 'src/namico_db_wrapper_base.dart';
 
