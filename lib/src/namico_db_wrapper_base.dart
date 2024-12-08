@@ -363,6 +363,11 @@ extension DatabaseUtils on Database {
       try {
         sql.execute('PRAGMA key = "$encryptionKey";');
       } catch (_) {}
+    } else {
+      sql.execute("PRAGMA cipher_memory_security = OFF;");
+      sql.execute("PRAGMA cipher_use_hmac = OFF;");
+      sql.execute("PRAGMA cipher_page_size = 8192;");
+      sql.execute("PRAGMA kdf_iter = 8;");
     }
     sql.execute("PRAGMA journal_mode=wal2");
     sql.execute("PRAGMA synchronous=NORMAL");
