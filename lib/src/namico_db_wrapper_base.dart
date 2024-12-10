@@ -10,12 +10,14 @@ part of '../namico_db_wrapper.dart';
 /// 1. the future returned refers to actual completions, you can safely access the modified table directly after the future returns.
 /// 2. executing multiple async functions simultaneously will be safe, since operations would still be blocked but on another isolate.
 class DBWrapper extends DBWrapperInterface {
+  // == calling methods while db is disposed, will throw null check error.
+
   /// The sqlite3 object that holds the db.
-  late final Database sql;
+  Database? sql;
 
-  late final String _dbTableName;
+  final String _dbTableName;
 
-  late final _DBIsolateManager _isolateManager;
+  _DBIsolateManager? _isolateManager;
 
   /// File info for the db.
   final DbWrapperFileInfo fileInfo;
@@ -34,7 +36,7 @@ class DBWrapper extends DBWrapperInterface {
 
   final DBCommandsBase _commands;
 
-  late final _DBCommandsManager _commandsManager;
+  _DBCommandsManager? _commandsManager;
 
   /// Opens a db by specifying [directory] & [dbName] with optional [encryptionKey].
   ///
@@ -107,6 +109,8 @@ class DBWrapper extends DBWrapperInterface {
     List<DBColumnType>? customTypes,
     bool createTable = true,
   }) {
+    if (_isOpen) close(); // -- unpossible scemario but warever
+
     _isOpen = true;
 
     final dbFile = fileInfo.file;
@@ -114,18 +118,18 @@ class DBWrapper extends DBWrapperInterface {
     final uri = Uri.file(dbFile.path);
     final dbOpenUriFinal = "$uri?cache=shared";
     sql = sqlite3.open(dbOpenUriFinal, uri: true);
-    sql.prepareDatabase(encryptionKey: encryptionKey);
+    sql!.prepareDatabase(encryptionKey: encryptionKey);
 
     final tableName = _dbTableName;
-    _commandsManager = _DBCommandsManager(sql, tableName, _commands);
-    if (createTable) _commandsManager.createTable();
-    _readSt = _commandsManager.buildReadKeyStatement();
-    if (_commands is DBCommands) _writeStDefault = _commandsManager.buildWriteStatement(null);
+    _commandsManager = _DBCommandsManager(sql!, tableName, _commands);
+    if (createTable) _commandsManager!.createTable();
+    _readSt = _commandsManager!.buildReadKeyStatement();
+    if (_commands is DBCommands) _writeStDefault = _commandsManager!.buildWriteStatement(null);
     _isolateManager = _DBIsolateManager(tableName, dbOpenUriFinal, customTypes);
   }
 
   PreparedStatement? _writeStDefault;
-  late final PreparedStatement _readSt;
+  PreparedStatement? _readSt;
   PreparedStatement? _existSt;
 
   /// Wether the db is currently open or not.
@@ -136,17 +140,24 @@ class DBWrapper extends DBWrapperInterface {
   @override
   void close() {
     _isOpen = false;
-    _readSt.dispose();
+
+    _readSt?.dispose();
     _writeStDefault?.dispose();
     _existSt?.dispose();
-    sql.dispose();
-    _isolateManager.dispose();
+    sql?.dispose();
+    _isolateManager?.dispose();
+
+    _readSt = null;
+    _writeStDefault = null;
+    _existSt = null;
+    sql = null;
+    _isolateManager = null;
   }
 
   void reOpen() {
     return _openFromInfoInternal(
       fileInfo: fileInfo,
-      createIfNotExist: createIfNotExist,
+      createIfNotExist: false,
       customTypes: customTypes,
       encryptionKey: encryptionKey,
       createTable: false,
@@ -156,11 +167,11 @@ class DBWrapper extends DBWrapperInterface {
   /// Early prepare the isolate channel responsible for async methods.
   /// This is not really needed unless you want to speed up first time execution.
   @override
-  Future<void> prepareIsolateChannel() => _isolateManager.initialize();
+  Future<void> prepareIsolateChannel() => _isolateManager!.initialize();
 
   /// Claim free space after duplicate inserts or deletions. this can be an expensive operation
   @override
-  void claimFreeSpace() => sql.execute(_commands.vacuumCommand());
+  void claimFreeSpace() => sql!.execute(_commands.vacuumCommand());
 
   /// Async version of [claimFreeSpace]
   @override
@@ -170,7 +181,7 @@ class DBWrapper extends DBWrapperInterface {
   @override
   void loadEverything(void Function(Map<String, dynamic> value) onValue) {
     final command = _commands.loadEverythingCommand(_dbTableName);
-    final res = sql.select(command);
+    final res = sql!.select(command);
     final columnNames = res.columnNames;
     res.rows.loop(
       (row) {
@@ -184,7 +195,7 @@ class DBWrapper extends DBWrapperInterface {
   @override
   void loadEverythingKeyed(void Function(String key, Map<String, dynamic> value) onValue) {
     final command = _commands.loadEverythingKeyedCommand(_dbTableName);
-    final res = sql.select(command);
+    final res = sql!.select(command);
     final columnNames = res.columnNames;
     res.rows.loop(
       (row) {
@@ -203,7 +214,7 @@ class DBWrapper extends DBWrapperInterface {
   /// In that case you might need to check the actual value by [get].
   @override
   bool containsKey(String key) {
-    _existSt ??= _commandsManager.buildExistStatement();
+    _existSt ??= _commandsManager!.buildExistStatement();
     return _existSt?.select([key]).isNotEmpty == true;
   }
 
@@ -212,13 +223,13 @@ class DBWrapper extends DBWrapperInterface {
   @override
   Map<String, dynamic>? get(String key) {
     final command = IsolateEncodableReadKey(key);
-    return command.execute(_readSt, commands: _commands);
+    return command.execute(_readSt!, commands: _commands);
   }
 
   @override
   List<Map<String, dynamic>> getAll(List<String> keys) {
     final command = IsolateEncodableReadList(keys);
-    return command.execute(_readSt, commands: _commands);
+    return command.execute(_readSt!, commands: _commands);
   }
 
   /// async version of [get].
@@ -246,7 +257,7 @@ class DBWrapper extends DBWrapperInterface {
       _writeStDefault!.execute(params);
     } else {
       // `DBCommandsCustom` needs to create it each time, cuz the parameters passed by [object] could not be the same as the default parameters.
-      final statement = _commandsManager.buildWriteStatement(object?.keys);
+      final statement = _commandsManager!.buildWriteStatement(object?.keys);
       statement.execute(params);
       statement.dispose();
     }
@@ -277,7 +288,7 @@ class DBWrapper extends DBWrapperInterface {
   @override
   void delete(String key) {
     final command = IsolateEncodableDeleteList([key]);
-    final st = command.buildStatement(sql, _dbTableName, commands: _commands);
+    final st = command.buildStatement(sql!, _dbTableName, commands: _commands);
     try {
       return command.execute(st, commands: _commands);
     } finally {
@@ -303,7 +314,7 @@ class DBWrapper extends DBWrapperInterface {
   }
 
   Future<dynamic> _executeAsync(IsolateEncodableBase command) {
-    return _isolateManager.executeIsolate(command);
+    return _isolateManager!.executeIsolate(command);
   }
 }
 
