@@ -23,11 +23,15 @@ class _DBWrapperAutoDisposable extends DBWrapper {
   Timer? _disposeTimer;
   int _currentOperations = 0;
 
-  /// use on async method start
-  void _onOperationStart() {
+  void _ensureDbOpen() {
     if (super.isOpen == false) {
       super.reOpen();
     }
+  }
+
+  /// use on async method start
+  void _onOperationStart() {
+    _ensureDbOpen();
     _currentOperations++;
     _cancelTimer();
   }
@@ -42,9 +46,7 @@ class _DBWrapperAutoDisposable extends DBWrapper {
 
   /// use on sync method calls
   void _rescheduleDisposeTimer() {
-    if (super.isOpen == false) {
-      super.reOpen();
-    }
+    _ensureDbOpen();
     _disposeTimer?.cancel();
     _disposeTimer = Timer(disposeTimerDuration, super.close);
   }
@@ -142,17 +144,32 @@ class _DBWrapperAutoDisposable extends DBWrapper {
 
   // ===== Methods that don't affect the timer
   @override
-  void claimFreeSpace() => super.claimFreeSpace();
+  void claimFreeSpace() {
+    _ensureDbOpen();
+    super.claimFreeSpace();
+  }
 
   @override
-  Future<void> claimFreeSpaceAsync() => super.claimFreeSpaceAsync();
+  Future<void> claimFreeSpaceAsync() {
+    _ensureDbOpen();
+    return super.claimFreeSpaceAsync();
+  }
 
   @override
-  void delete(String key) => super.delete(key);
+  void delete(String key) {
+    _ensureDbOpen();
+    super.delete(key);
+  }
 
   @override
-  Future<void> deleteAsync(String key) => super.deleteAsync(key);
+  Future<void> deleteAsync(String key) {
+    _ensureDbOpen();
+    return super.deleteAsync(key);
+  }
 
   @override
-  Future<void> deleteEverything() => super.deleteEverything();
+  Future<void> deleteEverything() {
+    _ensureDbOpen();
+    return super.deleteEverything();
+  }
 }
