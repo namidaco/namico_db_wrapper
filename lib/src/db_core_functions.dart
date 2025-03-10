@@ -11,4 +11,15 @@ class DBCoreFunctions {
       db.dispose();
     }
   }
+
+  /// Opens a database in read-only mode asyncronously
+  static Future<T> readDatabase<T>(String dbFilePath, Future<T> Function(Database db) callback) async {
+    NamicoDBWrapper.initialize();
+    final db = sqlite3.open(dbFilePath, mode: OpenMode.readOnly);
+    try {
+      return await callback(db);
+    } finally {
+      db.dispose();
+    }
+  }
 }
