@@ -377,7 +377,7 @@ extension DatabaseUtils on Database {
     } else {
       sql.execute("PRAGMA cipher_memory_security = OFF; PRAGMA cipher_use_hmac = OFF; PRAGMA cipher_page_size = 8192; PRAGMA kdf_iter = 8;");
     }
-    sql.execute("PRAGMA journal_mode=wal2; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;");
+    sql.execute("PRAGMA journal_mode=wal2; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA read_uncommitted = 1;");
   }
 }
 
