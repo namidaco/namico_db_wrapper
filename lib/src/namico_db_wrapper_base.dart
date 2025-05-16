@@ -377,7 +377,18 @@ extension DatabaseUtils on Database {
     } else {
       sql.execute("PRAGMA cipher_memory_security = OFF; PRAGMA cipher_use_hmac = OFF; PRAGMA cipher_page_size = 8192; PRAGMA kdf_iter = 8;");
     }
-    sql.execute("PRAGMA journal_mode=wal2; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA read_uncommitted = 1;");
+
+    // -- wal2 doesn't always work (like on windows)
+    String journalModeCommand = '';
+    const preferredJournalMode = 'wal2';
+    const fallbackJournalMode = 'wal';
+    final res = sql.select("PRAGMA journal_mode=$preferredJournalMode;");
+    final journalMode = res.rows.firstOrNull?.firstOrNull;
+    if (journalMode != preferredJournalMode && journalMode != fallbackJournalMode) {
+      journalModeCommand = 'PRAGMA journal_mode=$fallbackJournalMode; ';
+    }
+
+    sql.execute("${journalModeCommand}PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA read_uncommitted = 1;");
   }
 }
 
