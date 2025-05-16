@@ -1,15 +1,22 @@
 import 'dart:io';
 
+import 'package:benchmarking/benchmarking.dart';
 import 'package:test/test.dart';
 
 import 'package:namico_db_wrapper/namico_db_wrapper.dart';
 
 void main() {
+  late String dir;
+  setUpAll(
+    () {
+      NamicoDBWrapper.initialize();
+      dir = '${Directory.current.path}${Platform.pathSeparator}db_test';
+      Directory(dir).createSync();
+    },
+  );
+
   group('Main tests', () {
     test('read/write', () {
-      NamicoDBWrapper.initialize();
-      final dir = '${Directory.current.path}${Platform.pathSeparator}db_test';
-      Directory(dir).createSync();
       final dbwrapper = DBWrapper.open(dir, '_-test-_');
 
       dbwrapper.put('_', {'title': 'hehe'});
@@ -19,9 +26,6 @@ void main() {
     });
 
     test('read/write bulk', () async {
-      NamicoDBWrapper.initialize();
-      final dir = '${Directory.current.path}${Platform.pathSeparator}db_test';
-      Directory(dir).createSync();
       final dbwrapper = DBWrapper.open(dir, '_-test-_');
 
       dbwrapper.put('_1', {'title': 'item1'});
@@ -35,9 +39,7 @@ void main() {
 
     test('concurrent writing', () async {
       Future<void> preventIsolateClosing() => Future.delayed(Duration(seconds: 1));
-      NamicoDBWrapper.initialize();
-      final dir = '${Directory.current.path}${Platform.pathSeparator}db_test';
-      Directory(dir).createSync();
+
       final dbwrapper = DBWrapper.open(dir, '_-test-_');
 
       final items = List.generate(100, (index) => MapEntry(index, {'title': 'hehe$index'}));
@@ -56,8 +58,6 @@ void main() {
   });
   group('Custom DB tests', () {
     test('read/write', () async {
-      NamicoDBWrapper.initialize();
-      final dir = '${Directory.current.path}${Platform.pathSeparator}db_test';
       final customTypes = [
         DBColumnType(
           type: DBColumnTypeEnum.string,
@@ -107,4 +107,20 @@ void main() {
       expect(res['is_cool2'], 0);
     });
   });
+  group(
+    'Benchmark tests',
+    () {
+      test(
+        'load everything',
+        () async {
+          final dbwrapper = DBWrapper.open(dir, '_-test-_');
+          final items = List.generate(10005, (index) => MapEntry(index, {'title': 'hehe$index'}));
+          await dbwrapper.putAllAsync(items, (item) => MapEntry("${item.key}", item.value));
+
+          syncBenchmark('loadEverythingKeyed', () => dbwrapper.loadEverythingKeyed((key, value) {})).report();
+          syncBenchmark('loadEverything', () => dbwrapper.loadEverything((e) {})).report();
+        },
+      );
+    },
+  );
 }
