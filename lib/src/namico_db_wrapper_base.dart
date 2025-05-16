@@ -183,12 +183,12 @@ class DBWrapper extends DBWrapperInterface {
     final command = _commands.loadEverythingCommand(_dbTableName);
     final res = sql!.select(command);
     final columnNames = res.columnNames;
-    res.rows.loop(
-      (row) {
-        final parsed = _commands.parseRow(columnNames, row);
+
+    final int length = res.rows.length;
+    for (int i = 0; i < length; i++) {
+      final parsed = _commands.parseRow(columnNames, res.rows[i]);
         if (parsed != null) onValue(parsed);
-      },
-    );
+    }
   }
 
   /// Load all rows inside the db with their key.
@@ -197,17 +197,16 @@ class DBWrapper extends DBWrapperInterface {
     final command = _commands.loadEverythingKeyedCommand(_dbTableName);
     final res = sql!.select(command);
     final columnNames = res.columnNames;
-    res.rows.loop(
-      (row) {
+    final int length = res.rows.length;
+    for (int i = 0; i < length; i++) {
         try {
-          final parsedKeyed = _commands.parseKeyedRow(columnNames, row);
+        final parsedKeyed = _commands.parseKeyedRow(columnNames, res.rows[i]);
           if (parsedKeyed != null) {
             final parsed = parsedKeyed.map;
             if (parsed != null) onValue(parsedKeyed.key, parsed);
           }
         } catch (_) {}
-      },
-    );
+    }
   }
 
   /// Wether the db contains [key] or not. note that null values are allowed so the key may exist with a null value.
