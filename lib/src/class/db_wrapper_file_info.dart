@@ -8,6 +8,8 @@ class DbWrapperFileInfo {
   final String dbName;
   final String filenameActual;
   final String extension;
+  final String dbTableName;
+  final String dbOpenUriFinal;
 
   const DbWrapperFileInfo._({
     required this.file,
@@ -15,21 +17,25 @@ class DbWrapperFileInfo {
     required this.dbName,
     required this.filenameActual,
     required this.extension,
-  });
+    required this.dbOpenUriFinal,
+  }) : dbTableName = '`$dbName`';
 
   factory DbWrapperFileInfo({required String directory, required String dbName, String? encryptionKey}) {
     if (!directory.endsWith(Platform.pathSeparator)) directory += Platform.pathSeparator;
     final extension = encryptionKey != null ? '' : '.db';
     final actualFilename = '$dbName$extension';
     final path = "$directory$actualFilename";
-    final file = File(path);
+    final dbFile = File(path);
+    final uri = Uri.file(dbFile.path);
+    final dbOpenUriFinal = "$uri?cache=shared";
 
     return DbWrapperFileInfo._(
       directory: directory,
       dbName: dbName,
       filenameActual: actualFilename,
       extension: extension,
-      file: file,
+      file: dbFile,
+      dbOpenUriFinal: dbOpenUriFinal,
     );
   }
 

@@ -5,7 +5,7 @@
 
 - opening database
 ```dart
-// initialize sql once in your `main()` function.
+// initialize sql once in your `main()` function (and with each isolate).
 NamicoDBWrapper.initialize();
 
 // `DBWrapper.open()` accepts `directory path & db name`.
@@ -23,6 +23,25 @@ final db = DBWrapper.openFromInfo(
     directory: directoryPath,
   ),
 );
+
+
+```
+
+- sync/async implementations
+  - Since v4, `DBWrapper.open` returns an asynchronous implementation by default
+
+```dart
+
+// open a db with sync implementation (prefer use only in isolates, since this would block ui isolate) 
+final DBWrapperSync dbSync = DBWrapper.openSync(directoryPath, dbName);
+
+// open a db with async implementation
+final DBWrapperAsync dbAsync = DBWrapper.open(directoryPath, dbName);
+
+// open a db with both sync/async implementations (use only when really needed)
+final DBWrapperSyncAsync dbSyncAsync = DBWrapper.openSyncAsync(directoryPath, dbName);
+final valueAsync = await dbSyncAsync.get(key);
+final valueSync = dbSyncAsync.sync.get(key);
 
 ```
 
@@ -123,8 +142,8 @@ db.deleteEverything();
 see [DBWrapper.close()](./lib/src/namico_db_wrapper_base.dart#L103) & [_DBIsolateManager._prepareResourcesAndListen()](./lib/src/namico_db_wrapper_base.dart#L380) to know what resources are allocated
 ```dart
 final db = DBWrapper.open(dir, 'test_db');
-db.put(unique_key, object);
-db.close(); // close db and free allocated resources.
+await db.put(unique_key, object);
+await db.close(); // close db and free allocated resources.
 ```
 
 ## managing multiple open databases

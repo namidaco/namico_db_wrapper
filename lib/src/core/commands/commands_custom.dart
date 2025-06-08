@@ -44,12 +44,12 @@ final class DBCommandsCustom extends DBCommandsBase {
     final params = <dynamic>[key];
     if (object == null) return params;
 
-    customTypes.loop(
-      (item) {
-        final value = object[item.name];
-        if (value != null) params.add(value);
-      },
-    );
+    for (int i = 0; i < customTypes.length; i++) {
+      final item = customTypes[i];
+      final value = object[item.name];
+      if (value != null) params.add(value);
+    }
+
     return params;
   }
 

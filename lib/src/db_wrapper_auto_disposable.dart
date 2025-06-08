@@ -1,59 +1,36 @@
-// ignore_for_file: unnecessary_overrides
+// ignore_for_file: unnecessary_overrides, unnecessary_this
 
 part of '../namico_db_wrapper.dart';
 
-/// A Wrapper [DBWrapper] that automatically dispose the db when not in use, and reinit when necessary.
+/// A Wrapper around [DBWrapperAsync] that automatically disposes the db when not in use, and reinit when necessary.
 /// The Duration is indicated by [disposeTimerDuration].
-/// Disposable operations like [claimFreeSpace], [claimFreeSpaceAsync], [delete], [deleteAsync], [deleteEverything] will not mark the db as in use.
-class _DBWrapperAutoDisposable extends DBWrapper {
-  static const defaultDisposeTimerDuration = Duration(minutes: 5);
-
+/// Disposable operations like [claimFreeSpace], [delete], [deleteBulk], [deleteEverything] will not mark the db as in use.
+class _DBWrapperSyncAutoDisposable extends DBWrapperSync with _DBDisposeTimerManager {
   final Duration disposeTimerDuration;
 
-  _DBWrapperAutoDisposable._openFromInfo({
+  _DBWrapperSyncAutoDisposable._openFromInfo({
     required super.fileInfo,
-    super.encryptionKey,
-    super.createIfNotExist,
-    super.customTypes,
+    required super.config,
+    required super.onClose,
     required this.disposeTimerDuration,
   }) : super._openFromInfo() {
     _rescheduleDisposeTimer();
   }
 
-  Timer? _disposeTimer;
-  int _currentOperations = 0;
+  @override
+  Timer _createNewTimer() => Timer(disposeTimerDuration, super.close);
 
+  @override
+  DBWrapperSync reOpen() {
+    _rescheduleDisposeTimer();
+    return super.reOpen();
+  }
+
+  @override
   void _ensureDbOpen() {
     if (super.isOpen == false) {
       super.reOpen();
     }
-  }
-
-  /// use on async method start
-  void _onOperationStart() {
-    _ensureDbOpen();
-    _currentOperations++;
-    _cancelTimer();
-  }
-
-  /// use on async method end
-  void _onOperationEnd() {
-    _currentOperations--;
-    if (_currentOperations == 0) {
-      _rescheduleDisposeTimer();
-    }
-  }
-
-  /// use on sync method calls
-  void _rescheduleDisposeTimer() {
-    _ensureDbOpen();
-    _disposeTimer?.cancel();
-    _disposeTimer = Timer(disposeTimerDuration, super.close);
-  }
-
-  void _cancelTimer() {
-    _disposeTimer?.cancel();
-    _disposeTimer = null;
   }
 
   @override
@@ -81,38 +58,39 @@ class _DBWrapperAutoDisposable extends DBWrapper {
   }
 
   @override
-  Future<List<Map<String, dynamic>>> getAllAsync(List<String> keys) async {
-    _onOperationStart();
-    final val = await super.getAllAsync(keys);
-    _onOperationEnd();
-    return val;
-  }
-
-  @override
-  Future<Map<String, dynamic>?> getAsync(String key) async {
-    _onOperationStart();
-    final val = await super.getAsync(key);
-    _onOperationEnd();
-    return val;
-  }
-
-  @override
-  void loadEverything(void Function(Map<String, dynamic> value) onValue) {
+  void loadEverything(LoadEverythingCallback onValue) {
     _rescheduleDisposeTimer();
     return super.loadEverything(onValue);
   }
 
   @override
-  void loadEverythingKeyed(void Function(String key, Map<String, dynamic> value) onValue) {
+  void loadEverythingKeyed(LoadEverythingKeyedCallback onValue) {
     _rescheduleDisposeTimer();
     return super.loadEverythingKeyed(onValue);
   }
 
   @override
-  Future<void> prepareIsolateChannel() async {
-    _onOperationStart();
-    await super.prepareIsolateChannel();
-    _onOperationEnd();
+  List<Map<String, dynamic>> loadEverythingResult() {
+    _rescheduleDisposeTimer();
+    return super.loadEverythingResult();
+  }
+
+  @override
+  Map<String, Map<String, dynamic>> loadEverythingKeyedResult() {
+    _rescheduleDisposeTimer();
+    return super.loadEverythingKeyedResult();
+  }
+
+  @override
+  void loadAllKeys(LoadAllKeysCallback onValue) {
+    _rescheduleDisposeTimer();
+    return super.loadAllKeys(onValue);
+  }
+
+  @override
+  List<String> loadAllKeysResult() {
+    _rescheduleDisposeTimer();
+    return super.loadAllKeysResult();
   }
 
   @override
@@ -122,24 +100,9 @@ class _DBWrapperAutoDisposable extends DBWrapper {
   }
 
   @override
-  Future<void> putAllAsync<E>(List<E> items, CacheWriteItemToEntryCallback<E> itemToEntry) async {
-    _onOperationStart();
-    await super.putAllAsync(items, itemToEntry);
-    _onOperationEnd();
-  }
-
-  @override
-  Future<void> putAllIterableAsync<E>(Iterable<E> items, CacheWriteItemToEntryCallback<E> itemToEntry) async {
-    _onOperationStart();
-    await super.putAllIterableAsync(items, itemToEntry);
-    _onOperationEnd();
-  }
-
-  @override
-  Future<void> putAsync(String key, Map<String, dynamic>? object) async {
-    _onOperationStart();
-    await super.putAsync(key, object);
-    _onOperationEnd();
+  void putAll<E>(DBWriteList writeList) {
+    _rescheduleDisposeTimer();
+    super.putAll(writeList);
   }
 
   // ===== Methods that don't affect the timer
@@ -150,26 +113,55 @@ class _DBWrapperAutoDisposable extends DBWrapper {
   }
 
   @override
-  Future<void> claimFreeSpaceAsync() {
-    _ensureDbOpen();
-    return super.claimFreeSpaceAsync();
-  }
-
-  @override
   void delete(String key) {
     _ensureDbOpen();
     super.delete(key);
   }
 
   @override
-  Future<void> deleteAsync(String key) {
+  void deleteBulk(List<String> keys) {
     _ensureDbOpen();
-    return super.deleteAsync(key);
+    return super.deleteBulk(keys);
   }
 
   @override
-  Future<void> deleteEverything() {
+  void deleteEverything({bool claimFreeSpace = true}) {
     _ensureDbOpen();
-    return super.deleteEverything();
+    return super.deleteEverything(claimFreeSpace: claimFreeSpace);
+  }
+}
+
+mixin _DBDisposeTimerManager {
+  Timer? _disposeTimer;
+  // int _currentOperations = 0;
+
+  Timer _createNewTimer();
+  void _ensureDbOpen();
+
+  /// use on async method start
+  // void _onOperationStart() {
+  //   _ensureDbOpen();
+  //   _currentOperations++;
+  //   _cancelTimer();
+  // }
+
+  /// use on async method end
+  // void _onOperationEnd() {
+  //   _currentOperations--;
+  //   if (_currentOperations == 0) {
+  //     _rescheduleDisposeTimer();
+  //   }
+  // }
+
+  /// use on sync method calls
+  void _rescheduleDisposeTimer() {
+    _ensureDbOpen();
+    _disposeTimer?.cancel();
+    _disposeTimer = _createNewTimer();
+  }
+
+  void _cancelTimer() {
+    _disposeTimer?.cancel();
+    _disposeTimer = null;
   }
 }

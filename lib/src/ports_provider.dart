@@ -58,19 +58,18 @@ mixin PortsProvider<E> {
     if (portN != null) return await portN.future;
 
     await disposePort();
-    _portCompleter = Completer<SendPort>();
+    final portCompleter = _portCompleter = Completer<SendPort>();
     _recievePort = ReceivePort();
     _initializingCompleter = Completer<void>();
     _streamSub = _recievePort?.listen((result) {
       if (result is SendPort) {
-        final pc = _portCompleter;
-        if (pc != null && pc.isCompleted == false) pc.complete(result);
+        if (portCompleter.isCompleted == false) portCompleter.complete(result);
       } else {
         onResult(result);
       }
     });
     await isolateFunction(_recievePort!.sendPort);
-    return await _portCompleter!.future;
+    return await portCompleter.future;
   }
 
   @protected

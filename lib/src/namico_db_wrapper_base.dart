@@ -1,112 +1,191 @@
+// ignore_for_file: unnecessary_this
+
 part of '../namico_db_wrapper.dart';
 
+/// This class mixes [DBWrapperSync] with [DBWrapperAsync], meaning that 2 instances of the db will be active,
+/// one on main isolate and the other on a separate isolate. Use this only when really needed.
+///
+/// See also:
+///
+///  * [DBWrapperSync], the sync implementation.
+///  * [DBWrapperAsync], the async implementation.
+class DBWrapper extends DBWrapperAsync {
+  final DBWrapperSync sync;
+
+  DBWrapper._({
+    required this.sync,
+    required super.fileInfo,
+    required super.config,
+  }) : super._openFromInfo();
+
+  /// Opens a db by specifying [directory] & [dbName] with optional [DBConfig.encryptionKey].
+  ///
+  /// Passing [DBConfig.customTypes] can define how the table looks, otherwise the objects are saved as a json string in one column.
+  static DBWrapperAsync open(
+    String directory,
+    String dbName, {
+    DBConfig config = const DBConfig(),
+  }) {
+    final fileInfo = DbWrapperFileInfo(
+      directory: directory,
+      dbName: dbName,
+      encryptionKey: config.encryptionKey,
+    );
+    return DBWrapper.openFromInfo(
+      fileInfo: fileInfo,
+      config: config,
+    );
+  }
+
+  /// Opens a db by specifying [fileInfo] with optional [DBConfig.encryptionKey].
+  ///
+  /// Passing [DBConfig.customTypes] can define how the table looks, otherwise the objects are saved as a json string in one column.
+  static DBWrapperAsync openFromInfo({
+    required DbWrapperFileInfo fileInfo,
+    DBConfig config = const DBConfig(),
+  }) {
+    return DBWrapperAsync._openFromInfo(
+      fileInfo: fileInfo,
+      config: config,
+    );
+  }
+
+  /// Sync version of [DBWrapper.open].
+  static DBWrapperSync openSync(
+    String directory,
+    String dbName, {
+    DBConfig config = const DBConfig(),
+  }) {
+    final fileInfo = DbWrapperFileInfo(
+      directory: directory,
+      dbName: dbName,
+      encryptionKey: config.encryptionKey,
+    );
+    return DBWrapperSync.openFromInfo(
+      fileInfo: fileInfo,
+      config: config,
+    );
+  }
+
+  /// Sync version of [DBWrapper.openFromInfo].
+  static DBWrapperSync openFromInfoSync({
+    required DbWrapperFileInfo fileInfo,
+    DBConfig config = const DBConfig(),
+  }) {
+    return DBWrapperSync._openFromInfo(
+      fileInfo: fileInfo,
+      config: config,
+    );
+  }
+
+  /// Combines [DBWrapper.open] & [DBWrapper.openSync].
+  ///
+  /// The result object contains 2 db instances: [DBWrapper.sync] & [DBWrapperAsync].
+  static DBWrapper openSyncAsync(
+    String directory,
+    String dbName, {
+    DBConfig config = const DBConfig(),
+  }) {
+    final fileInfo = DbWrapperFileInfo(
+      directory: directory,
+      dbName: dbName,
+      encryptionKey: config.encryptionKey,
+    );
+    return DBWrapper.openFromInfoSyncAsync(
+      fileInfo: fileInfo,
+      config: config,
+    );
+  }
+
+  static DBWrapper openFromInfoSyncAsync({
+    required DbWrapperFileInfo fileInfo,
+    DBConfig config = const DBConfig(),
+  }) {
+    final sync = DBWrapperSync._openFromInfo(
+      fileInfo: fileInfo,
+      config: config,
+    );
+    return DBWrapper._(
+      sync: sync,
+      fileInfo: fileInfo,
+      config: config,
+    );
+  }
+
+  @override
+  DbWrapperFileInfo get fileInfo => sync.fileInfo;
+
+  @override
+  bool get isOpen => super.isOpen || sync.isOpen;
+
+  @override
+  Future<void> close() async {
+    sync.close();
+    return await super.close();
+  }
+}
+
+/// {@template DBWrapperSync}
 /// A wrapper around SQLite3 that facilitates readings/insertions/deletions/etc.
 ///
-/// The columns can be specified using [customTypes] which are pre-defined/dynamically-added columns, otherwise they default to a single json-encoded [String] `value` column.
+/// The columns can be specified using [DBConfig.customTypes] which are pre-defined/dynamically-added columns, otherwise they default to a single json-encoded [String] `value` column.
 /// The id is always a [String] `key`.
 ///
-/// All async functions inside this class run on a separate *single* isolate, using [PortsProvider]
-/// which means:
-/// 1. the future returned refers to actual completions, you can safely access the modified table directly after the future returns.
-/// 2. executing multiple async functions simultaneously will be safe, since operations would still be blocked but on another isolate.
-class DBWrapper extends DBWrapperInterface {
+/// {@endtemplate}
+class DBWrapperSync with DBWrapperInterfaceSync {
   // == calling methods while db is disposed, will throw null check error.
 
   /// The sqlite3 object that holds the db.
   Database? sql;
 
-  final String _dbTableName;
-
-  _DBIsolateManager? _isolateManager;
-
   /// File info for the db.
   final DbWrapperFileInfo fileInfo;
 
-  final String? encryptionKey;
-
-  final bool createIfNotExist;
-
-  /// Defines the columns for the database.
-  ///
-  /// Columns that are added later after the table is already created, will be added inside the db by executing `ALTER TABLE table_name ADD COLUMN column_name`,
-  /// this can be quite an expensive operation depending on how large the db is.
-  ///
-  /// Columns that are removed will not be deleted from the db.
-  final List<DBColumnType>? customTypes;
+  /// Config for the db.
+  final DBConfig config;
 
   final DBCommandsBase _commands;
 
-  _DBCommandsManager? _commandsManager;
+  late _DBCommandsManager _commandsManager;
 
-  /// Opens a db by specifying [directory] & [dbName] with optional [encryptionKey].
-  ///
-  /// Passing [customTypes] can define how the table looks, otherwise the objects are saved as a json string in one column.
-  static DBWrapper open(
-    String directory,
-    String dbName, {
-    String? encryptionKey,
-    List<DBColumnType>? customTypes,
-    bool createIfNotExist = false,
-    Duration? autoDisposeTimerDuration = _DBWrapperAutoDisposable.defaultDisposeTimerDuration,
-  }) {
-    final fileInfo = DbWrapperFileInfo(directory: directory, dbName: dbName, encryptionKey: encryptionKey);
-    return DBWrapper.openFromInfo(
-      fileInfo: fileInfo,
-      encryptionKey: encryptionKey,
-      customTypes: customTypes,
-      createIfNotExist: createIfNotExist,
-      autoDisposeTimerDuration: autoDisposeTimerDuration,
-    );
-  }
+  final void Function()? onClose;
 
-  /// Opens a db by specifying [fileInfo] with optional [encryptionKey].
-  ///
-  /// Passing [customTypes] can define how the table looks, otherwise the objects are saved as a json string in one column.
-  static DBWrapper openFromInfo({
+  factory DBWrapperSync.openFromInfo({
     required DbWrapperFileInfo fileInfo,
-    String? encryptionKey,
-    List<DBColumnType>? customTypes,
-    bool createIfNotExist = false,
-    Duration? autoDisposeTimerDuration = _DBWrapperAutoDisposable.defaultDisposeTimerDuration,
+    DBConfig config = const DBConfig(),
+    void Function()? onClose,
   }) {
+    final autoDisposeTimerDuration = config.autoDisposeTimerDuration;
     if (autoDisposeTimerDuration == null) {
-      return DBWrapper._openFromInfo(
+      return DBWrapperSync._openFromInfo(
         fileInfo: fileInfo,
-        encryptionKey: encryptionKey,
-        createIfNotExist: createIfNotExist,
-        customTypes: customTypes,
+        config: config,
+        onClose: onClose,
       );
     } else {
-      return _DBWrapperAutoDisposable._openFromInfo(
+      return _DBWrapperSyncAutoDisposable._openFromInfo(
         fileInfo: fileInfo,
-        encryptionKey: encryptionKey,
-        createIfNotExist: createIfNotExist,
-        customTypes: customTypes,
+        config: config,
         disposeTimerDuration: autoDisposeTimerDuration,
+        onClose: onClose,
       );
     }
   }
 
-  DBWrapper._openFromInfo({
+  DBWrapperSync._openFromInfo({
     required this.fileInfo,
-    this.encryptionKey,
-    this.createIfNotExist = false,
-    this.customTypes,
-  })  : _dbTableName = '`${fileInfo.dbName}`',
-        _commands = DBCommandsBase.dynamic(customTypes) {
+    required this.config,
+    this.onClose,
+  }) : _commands = DBCommandsBase.dynamic(config.customTypes) {
     _openFromInfoInternal(
       fileInfo: fileInfo,
-      encryptionKey: encryptionKey,
-      createIfNotExist: createIfNotExist,
-      customTypes: customTypes,
+      config: config,
     );
   }
 
-  void _openFromInfoInternal({
+  DBWrapperSync _openFromInfoInternal({
     required DbWrapperFileInfo fileInfo,
-    String? encryptionKey,
-    bool createIfNotExist = false,
-    List<DBColumnType>? customTypes,
+    required DBConfig config,
     bool createTable = true,
   }) {
     if (_isOpen) close(); // -- unpossible scemario but warever
@@ -114,29 +193,25 @@ class DBWrapper extends DBWrapperInterface {
     _isOpen = true;
 
     final dbFile = fileInfo.file;
-    if (createIfNotExist && !dbFile.existsSync()) dbFile.createSync(recursive: true);
-    final uri = Uri.file(dbFile.path);
-    final dbOpenUriFinal = "$uri?cache=shared";
-    sql = sqlite3.open(dbOpenUriFinal, uri: true);
-    sql!.prepareDatabase(encryptionKey: encryptionKey);
+    if (config.createIfNotExist && !dbFile.existsSync()) dbFile.createSync(recursive: true);
+    sql = sqlite3.open(fileInfo.dbOpenUriFinal, uri: true);
+    sql!.prepareDatabase(encryptionKey: config.encryptionKey, fileInfo: fileInfo, config: config);
 
-    final tableName = _dbTableName;
-    _commandsManager = _DBCommandsManager(sql!, tableName, _commands);
-    if (createTable) _commandsManager!.createTable();
-    _readSt = _commandsManager!.buildReadKeyStatement();
-    if (_commands is DBCommands) _writeStDefault = _commandsManager!.buildWriteStatement(null);
-    _isolateManager = _DBIsolateManager(tableName, dbOpenUriFinal, customTypes);
+    _commandsManager = _DBCommandsManager(sql!, fileInfo.dbTableName, _commands);
+    if (createTable) _commandsManager.createTable();
+    _readSt = _commandsManager.buildReadKeyStatement();
+    if (_commands is DBCommands) _writeStDefault = _commandsManager.buildWriteStatement(null);
+    return this;
   }
 
   PreparedStatement? _writeStDefault;
   PreparedStatement? _readSt;
   PreparedStatement? _existSt;
 
-  /// Wether the db is currently open or not.
+  @override
   bool get isOpen => _isOpen;
   bool _isOpen = false;
 
-  /// close the db and free allocated resources.
   @override
   void close() {
     _isOpen = false;
@@ -145,110 +220,137 @@ class DBWrapper extends DBWrapperInterface {
     _writeStDefault?.dispose();
     _existSt?.dispose();
     sql?.dispose();
-    _isolateManager?.dispose();
 
     _readSt = null;
     _writeStDefault = null;
     _existSt = null;
     sql = null;
-    _isolateManager = null;
+
+    onClose?.call();
   }
 
-  void reOpen() {
+  @override
+  DBWrapperSync reOpen() {
     return _openFromInfoInternal(
       fileInfo: fileInfo,
-      createIfNotExist: false,
-      customTypes: customTypes,
-      encryptionKey: encryptionKey,
+      config: config,
       createTable: false,
     );
   }
 
-  /// Early prepare the isolate channel responsible for async methods.
-  /// This is not really needed unless you want to speed up first time execution.
-  @override
-  Future<void> prepareIsolateChannel() => _isolateManager!.initialize();
-
   /// Claim free space after duplicate inserts or deletions. this can be an expensive operation
   @override
-  void claimFreeSpace() => sql!.execute(_commands.vacuumCommand());
+  void claimFreeSpace() {
+    try {
+      sql!.execute(_commands.checkpointCommand()); // force a checkpoint to merge wal content to db.
+    } catch (_) {}
+    sql!.execute(_commands.vacuumCommand());
+  }
 
-  /// Async version of [claimFreeSpace]
   @override
-  Future<void> claimFreeSpaceAsync() => _executeAsync(const IsolateEncodableClaimFreeSpace());
+  List<Map<String, dynamic>> loadEverythingResult() {
+    final values = <Map<String, dynamic>>[];
+    this.loadEverything(values.add);
+    return values;
+  }
 
-  /// Load all rows inside the db. if [customTypes] are provided then the key will exist in the map provided, otherwise see [loadEverythingKeyed].
-  @override
-  void loadEverything(void Function(Map<String, dynamic> value) onValue) {
-    final command = _commands.loadEverythingCommand(_dbTableName);
+  void loadEverything(LoadEverythingCallback onValue) {
+    final command = _commands.loadEverythingCommand(fileInfo.dbTableName);
     final res = sql!.select(command);
     final columnNames = res.columnNames;
 
     final int length = res.rows.length;
     for (int i = 0; i < length; i++) {
       final parsed = _commands.parseRow(columnNames, res.rows[i]);
-        if (parsed != null) onValue(parsed);
+      if (parsed != null) onValue(parsed);
     }
   }
 
-  /// Load all rows inside the db with their key.
   @override
-  void loadEverythingKeyed(void Function(String key, Map<String, dynamic> value) onValue) {
-    final command = _commands.loadEverythingKeyedCommand(_dbTableName);
+  Map<String, Map<String, dynamic>> loadEverythingKeyedResult() {
+    final valuesMap = <String, Map<String, dynamic>>{};
+    this.loadEverythingKeyed((key, value) => valuesMap[key] = value);
+    return valuesMap;
+  }
+
+  void loadEverythingKeyed(LoadEverythingKeyedCallback onValue) {
+    final command = _commands.loadEverythingKeyedCommand(fileInfo.dbTableName);
     final res = sql!.select(command);
     final columnNames = res.columnNames;
     final int length = res.rows.length;
     for (int i = 0; i < length; i++) {
-        try {
+      try {
         final parsedKeyed = _commands.parseKeyedRow(columnNames, res.rows[i]);
-          if (parsedKeyed != null) {
-            final parsed = parsedKeyed.map;
-            if (parsed != null) onValue(parsedKeyed.key, parsed);
-          }
-        } catch (_) {}
+        if (parsedKeyed != null) {
+          final parsed = parsedKeyed.map;
+          if (parsed != null) onValue(parsedKeyed.key, parsed);
+        }
+      } catch (_) {}
     }
   }
 
-  /// Wether the db contains [key] or not. note that null values are allowed so the key may exist with a null value.
-  /// In that case you might need to check the actual value by [get].
+  @override
+  List<String> loadAllKeysResult() {
+    final values = <String>[];
+    this.loadAllKeys(values.add);
+    return values;
+  }
+
+  void loadAllKeys(LoadAllKeysCallback onValue) {
+    final command = _commands.selectAllKeysCommand(fileInfo.dbTableName);
+    final res = sql!.select(command);
+    final int length = res.rows.length;
+    for (int i = 0; i < length; i++) {
+      try {
+        final row = res.rows[i];
+        final parsedKey = _commands.parseKeyFromRow(row);
+        if (parsedKey != null) {
+          onValue(parsedKey);
+        }
+      } catch (_) {}
+    }
+  }
+
   @override
   bool containsKey(String key) {
-    _existSt ??= _commandsManager!.buildExistStatement();
+    _existSt ??= _commandsManager.buildExistStatement();
     return _existSt?.select([key]).isNotEmpty == true;
   }
 
-  /// get a value of a key. this can return null if key doesn't exist or value is null.
-  /// use [containsKey] if you want to check the key itself
   @override
   Map<String, dynamic>? get(String key) {
-    final command = IsolateEncodableReadKey(key);
-    return command.execute(_readSt!, commands: _commands);
+    final res = _readSt!.select([key]);
+    final row = res.rows.firstOrNull;
+    if (row == null) return null;
+    final columnNames = res.columnNames;
+    try {
+      return _commands.parseRow(columnNames, row);
+    } catch (_) {
+      return null;
+    }
   }
 
   @override
   List<Map<String, dynamic>> getAll(List<String> keys) {
-    final command = IsolateEncodableReadList(keys);
-    return command.execute(_readSt!, commands: _commands);
+    final command = _commandsManager.buildReadKeysAllStatement(keys.length);
+    try {
+      final res = command.select(keys);
+      final values = <Map<String, dynamic>>[];
+      final columnNames = res.columnNames;
+
+      final rows = res.rows;
+      for (int i = 0; i < rows.length; i++) {
+        final row = rows[i];
+        final parsed = _commands.parseRow(columnNames, row);
+        if (parsed != null) values.add(parsed);
+      }
+
+      return values;
+    } finally {
+      command.dispose();
+    }
   }
 
-  /// async version of [get].
-  @override
-  Future<Map<String, dynamic>?> getAsync(String key) async {
-    final command = IsolateEncodableReadKey(key);
-    final res = await _executeAsync(command);
-    return res as Map<String, dynamic>?;
-  }
-
-  /// async version of [getAll].
-  @override
-  Future<List<Map<String, dynamic>>> getAllAsync(List<String> keys) async {
-    final command = IsolateEncodableReadList(keys);
-    final res = await _executeAsync(command);
-    return res as List<Map<String, dynamic>>;
-  }
-
-  /// puts a value [object] to a [key] in the db. if the key already exists then it's overriden.
-  /// if [customTypes] are provided then the keys of [object] should be the same as the column names of [customTypes].
   @override
   void put(String key, Map<String, dynamic>? object) {
     final params = _commands.objectToWriteParameters(key, object);
@@ -256,64 +358,165 @@ class DBWrapper extends DBWrapperInterface {
       _writeStDefault!.execute(params);
     } else {
       // `DBCommandsCustom` needs to create it each time, cuz the parameters passed by [object] could not be the same as the default parameters.
-      final statement = _commandsManager!.buildWriteStatement(object?.keys);
+      final statement = _commandsManager.buildWriteStatement(object?.keys);
       statement.execute(params);
       statement.dispose();
     }
   }
 
-  /// async version of [put].
-  @override
-  Future<void> putAsync(String key, Map<String, dynamic>? object) {
-    final entries = IsolateEncodableWriteList.fromEntry(key, object);
-    return _writeAsync(entries);
+  void putAll<E>(DBWriteList writeList) {
+    final items = writeList.items;
+    for (int i = 0; i < items.length; i++) {
+      final item = items[i];
+      put(item.key, item.value);
+    }
   }
 
-  /// same as [put] but for multiple values.
-  @override
-  Future<void> putAllAsync<E>(List<E> items, CacheWriteItemToEntryCallback<E> itemToEntry) {
-    final entries = IsolateEncodableWriteList.fromList(items, itemToEntry);
-    return _writeAsync(entries);
-  }
-
-  /// same as [putAllAsync] except that [putAllAsync] is better with lists.
-  @override
-  Future<void> putAllIterableAsync<E>(Iterable<E> items, CacheWriteItemToEntryCallback<E> itemToEntry) {
-    final entries = IsolateEncodableWriteList.fromIterable(items, itemToEntry);
-    return _writeAsync(entries);
-  }
-
-  /// delete a single row inside the db.
   @override
   void delete(String key) {
-    final command = IsolateEncodableDeleteList([key]);
-    final st = command.buildStatement(sql!, _dbTableName, commands: _commands);
+    return deleteBulk([key]);
+  }
+
+  @override
+  void deleteBulk(List<String> keys) {
+    final st = _commandsManager.buildDeleteStatement(keys);
     try {
-      return command.execute(st, commands: _commands);
+      return st.execute(keys);
     } finally {
       st.dispose();
     }
   }
 
-  /// async version of [delete].
   @override
-  Future<void> deleteAsync(String key) {
-    final command = IsolateEncodableDeleteList([key]);
+  void deleteEverything({bool claimFreeSpace = true}) {
+    final st = _commandsManager.buildDeleteEverythingStatement();
+    try {
+      st.execute();
+    } finally {
+      st.dispose();
+    }
+
+    if (claimFreeSpace) this.claimFreeSpace();
+  }
+}
+
+/// {@template DBWrapperAsync}
+///
+/// All async functions inside this class run on a separate *single* isolate, using [PortsProvider]
+/// which means:
+/// 1. the future returned refers to actual completions, you can safely access the modified table directly after the future returns.
+/// 2. executing multiple async functions simultaneously will be safe, since operations would still be blocked but on another isolate.
+///
+/// {@endtemplate}
+
+class DBWrapperAsync with DBWrapperInterfaceAsync {
+  final DbWrapperFileInfo fileInfo;
+  final DBConfig config;
+
+  final _DBIsolateManager _isolateManager;
+
+  DBWrapperAsync._openFromInfo({
+    required this.fileInfo,
+    required this.config,
+  }) : _isolateManager = _DBIsolateManager(
+          fileInfo: fileInfo,
+          config: config,
+        ) {
+    _prepareIsolateChannel();
+  }
+
+  @override
+  bool get isOpen => _isolateManager.isInitialized;
+
+  @override
+  Future<void> close() => _isolateManager.dispose();
+
+  /// In [DBWrapperAsync], it just re-initializes the isolate channel.
+  @override
+  Future<DBWrapperAsync> reOpen() async {
+    await _prepareIsolateChannel();
+    return this;
+  }
+
+  /// Manually prepare the isolate channel responsible for async methods.
+  Future<void> _prepareIsolateChannel() => _isolateManager.initialize();
+
+  @override
+  Future<void> claimFreeSpace() => _executeAsync(const _IsolateEncodable.claimFreeSpace());
+
+  @override
+  Future<List<Map<String, dynamic>>> loadEverythingResult() async => await _executeAsync(const _IsolateEncodable.loadEverything());
+
+  @override
+  Future<Map<String, Map<String, dynamic>>> loadEverythingKeyedResult() async => await _executeAsync(const _IsolateEncodable.loadEverythingKeyed());
+
+  @override
+  Future<List<String>> loadAllKeysResult() async => await _executeAsync(const _IsolateEncodable.loadAllKeys());
+
+  @override
+  Future<bool> containsKey(String key) async {
+    final enc = _IsolateEncodable.containsKey(key);
+    final res = await _executeAsync(enc);
+    return res as bool;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> get(String key) async {
+    final command = _IsolateEncodable.readKey(key);
+    final res = await _executeAsync(command);
+    return res as Map<String, dynamic>?;
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getAll(List<String> keys) async {
+    final command = _IsolateEncodable.readList(keys);
+    final res = await _executeAsync(command);
+    return res as List<Map<String, dynamic>>;
+  }
+
+  @override
+  Future<void> put(String key, Map<String, dynamic>? object) {
+    final entries = DBWriteList.fromEntry(key, object);
+    return _writeAsync(entries);
+  }
+
+  @override
+  Future<void> putAll<E>(List<E> items, CacheWriteItemToEntryCallback<E> itemToEntry) {
+    final entries = DBWriteList.fromList(items, itemToEntry);
+    return _writeAsync(entries);
+  }
+
+  @override
+  Future<void> putAllIterable<E>(Iterable<E> items, CacheWriteItemToEntryCallback<E> itemToEntry) {
+    final entries = DBWriteList.fromIterable(items, itemToEntry);
+    return _writeAsync(entries);
+  }
+
+  @override
+  Future<void> delete(String key) {
+    final command = _IsolateEncodable.delete(key);
     return _executeAsync(command);
   }
 
-  /// delete all rows inside the db.
   @override
-  Future<void> deleteEverything() {
-    return _executeAsync(const IsolateEncodableDeleteEverything());
+  Future<void> deleteBulk(List<String> keys) {
+    final command = _IsolateEncodable.deleteBulk(keys);
+    return _executeAsync(command);
   }
 
-  Future<void> _writeAsync(IsolateEncodableWriteList writeList) {
-    return _executeAsync(writeList);
+  @override
+  Future<void> deleteEverything({bool claimFreeSpace = true}) {
+    final exc = claimFreeSpace ? const _IsolateEncodable.deleteEverythingAndClaimSpace() : const _IsolateEncodable.deleteEverything();
+    return _executeAsync(exc);
   }
 
-  Future<dynamic> _executeAsync(IsolateEncodableBase command) {
-    return _isolateManager!.executeIsolate(command);
+  Future<void> _writeAsync(DBWriteList writeList) {
+    final writeListEnc = _IsolateEncodable.writeList(writeList);
+    return _executeAsync(writeListEnc);
+  }
+
+  Future<dynamic> _executeAsync(_IsolateEncodable command) {
+    return _isolateManager.executeIsolate(command);
   }
 }
 
@@ -338,36 +541,41 @@ class _DBCommandsManager {
 
   PreparedStatement buildWriteStatement(Iterable<String>? keys) {
     final command = _commands.writeCommand(tableName, keys);
-    return sql.prepare(command, persistent: true);
+    return sql.prepare(command, persistent: false);
+  }
+
+  PreparedStatement buildDeleteStatement(List<String> keys) {
+    final command = _commands.deleteCommand(tableName, keys);
+    return sql.prepare(command, persistent: false);
+  }
+
+  PreparedStatement buildDeleteEverythingStatement() {
+    final command = _commands.deleteEverythingCommand(tableName);
+    return sql.prepare(command, persistent: false);
   }
 
   PreparedStatement buildReadKeyStatement() {
     final command = _commands.selectKeyCommand(tableName);
-    return sql.prepare(command, persistent: true);
+    return sql.prepare(command, persistent: false);
   }
 
   PreparedStatement buildReadKeysAllStatement(int keysCount) {
     final command = _commands.selectKeysAllCommand(tableName, keysCount);
-    return sql.prepare(command, persistent: true);
+    return sql.prepare(command, persistent: false);
   }
 
   PreparedStatement buildExistStatement() {
     final command = _commands.doesKeyExistCommand(tableName);
-    return sql.prepare(command, persistent: true);
-  }
-}
-
-extension _Listie<E> on List<E> {
-  void loop(void Function(E item) fn) {
-    final int length = this.length;
-    for (int i = 0; i < length; i++) {
-      fn(this[i]);
-    }
+    return sql.prepare(command, persistent: false);
   }
 }
 
 extension DatabaseUtils on Database {
-  void prepareDatabase({String? encryptionKey}) {
+  void prepareDatabase({
+    String? encryptionKey,
+    required DbWrapperFileInfo fileInfo,
+    required DBConfig config,
+  }) {
     final sql = this;
     if (encryptionKey != null) {
       try {
@@ -381,8 +589,13 @@ extension DatabaseUtils on Database {
     String journalModeCommand = '';
     const preferredJournalMode = 'wal2';
     const fallbackJournalMode = 'wal';
-    final res = sql.select("PRAGMA journal_mode=$preferredJournalMode;");
-    final journalMode = res.rows.firstOrNull?.firstOrNull;
+
+    String? journalMode;
+    try {
+      final res = sql.select("PRAGMA journal_mode=$preferredJournalMode;");
+      journalMode = res.rows.firstOrNull?.firstOrNull?.toString();
+    } catch (_) {}
+
     if (journalMode != preferredJournalMode && journalMode != fallbackJournalMode) {
       journalModeCommand = 'PRAGMA journal_mode=$fallbackJournalMode; ';
     }
@@ -392,26 +605,27 @@ extension DatabaseUtils on Database {
 }
 
 class _DBIsolateManager with PortsProvider<Map> {
-  final String tableName;
-  final String dbOpenUriFinal;
-  final List<DBColumnType>? customTypes;
+  final DbWrapperFileInfo fileInfo;
+  final DBConfig config;
 
-  _DBIsolateManager(
-    this.tableName,
-    this.dbOpenUriFinal,
-    this.customTypes,
-  );
+  _DBIsolateManager({
+    required this.fileInfo,
+    required this.config,
+  });
 
+  final _tokenManager = _IsolateMessageToken.create();
   final _completers = <int, Completer<dynamic>?>{};
 
-  void dispose() => disposePort();
+  Future<void> dispose() async {
+    if (isInitialized) await disposePort();
+  }
 
-  Future<dynamic> executeIsolate(IsolateEncodableBase command) async {
+  Future<dynamic> executeIsolate(_IsolateEncodable command) async {
     if (!isInitialized) await initialize();
-    final token = _IsolateMessageToken.create().key;
+    final token = _tokenManager.next();
     _completers[token]?.complete(null); // useless but anyways
     final completer = _completers[token] = Completer<dynamic>();
-    sendPort([command, token]);
+    sendPort([token, command]);
     var res = await completer.future;
     _completers[token] = null; // dereferencing
     return res;
@@ -421,28 +635,26 @@ class _DBIsolateManager with PortsProvider<Map> {
   IsolateFunctionReturnBuild<Map> isolateFunction(SendPort port) {
     final params = {
       'port': port,
-      'tableName': tableName,
-      'customTypes': customTypes,
-      'uriFinal': dbOpenUriFinal,
+      'fileInfo': fileInfo,
+      'config': config,
     };
     return IsolateFunctionReturnBuild(_prepareResourcesAndListen, params);
   }
 
   static void _prepareResourcesAndListen(Map params) async {
     final sendPort = params['port'] as SendPort;
-    final tableName = params['tableName'] as String;
-    final customTypes = params['customTypes'] as List<DBColumnType>?;
-    final uriFinal = params['uriFinal'] as String;
+    final fileInfo = params['fileInfo'] as DbWrapperFileInfo;
+    final config = params['config'] as DBConfig;
 
     final recievePort = ReceivePort();
     sendPort.send(recievePort.sendPort);
 
     NamicoDBWrapper.initialize();
-    final sql = sqlite3.open(uriFinal, mode: OpenMode.readWriteCreate, uri: true);
-    final commands = DBCommandsBase.dynamic(customTypes);
-    final utils = _DBCommandsManager(sql, tableName, commands);
-
-    final PreparedStatement? writeStatementDefault = commands is DBCommands ? utils.buildWriteStatement(null) : null;
+    final db = DBWrapperSync.openFromInfo(
+      fileInfo: fileInfo,
+      config: config,
+      onClose: () => sendPort.send(PortsProviderMessages.disposed),
+    );
 
     // -- start listening
     StreamSubscription? streamSub;
@@ -450,41 +662,41 @@ class _DBIsolateManager with PortsProvider<Map> {
       if (PortsProvider.isDisposeMessage(p)) {
         recievePort.close();
         streamSub?.cancel();
-        writeStatementDefault?.dispose();
-        sql.dispose();
+        db.close();
         return;
       }
 
       p as List;
-      final command = p[0] as IsolateEncodableBase;
-      final token = p[1] as int;
+      final token = p[0] as int;
+      final command = p[1] as _IsolateEncodable;
 
-      PreparedStatement statement;
-      bool canDisposeStatement;
-      if (command is IsolateEncodableWriteList && writeStatementDefault != null) {
-        // only when `_commands` is `DBCommands`, because `DBCommandsCustom` needs to create it each time
-        statement = writeStatementDefault;
-        canDisposeStatement = false;
-      } else {
-        statement = command.buildStatement(sql, tableName, commands: commands);
-        canDisposeStatement = true;
-      }
       dynamic readRes;
-      if (command is IsolateEncodableClaimFreeSpace) {
+      Object? exception;
+      bool manualCommit = false;
+
+      if (manualCommit) {
+        // TODO: start transaction function
         try {
-          command.execute(statement, commands: commands);
-        } finally {
-          if (canDisposeStatement) statement.dispose();
-          sendPort.send([token, readRes]);
+          db.sql!.execute('BEGIN;');
+          readRes = command.execute(db);
+          db.sql!.execute('COMMIT;');
+        } catch (e) {
+          exception = e;
+          try {
+            db.sql!.execute('ROLLBACK;');
+          } catch (e) {
+            exception = e;
+          }
         }
       } else {
         try {
-          readRes = command.execute(statement, commands: commands);
-        } finally {
-          if (canDisposeStatement) statement.dispose();
-          sendPort.send([token, readRes]);
+          readRes = command.execute(db);
+        } catch (e) {
+          exception = e;
         }
       }
+
+      sendPort.send([token, readRes, exception]);
     });
 
     sendPort.send(PortsProviderMessages.prepared); // prepared
@@ -492,14 +704,28 @@ class _DBIsolateManager with PortsProvider<Map> {
 
   @override
   void onResult(result) {
+    if (PortsProvider.isDisposeMessage(result)) {
+      if (kDebugMode) debugPrint('PortsProvider.onResult: recieved internal auto dispose message. closing: `${fileInfo.file.path}`');
+      dispose();
+      return;
+    }
+
     final token = result[0] as int;
     final completer = _completers[token];
-    if (completer != null && completer.isCompleted == false) completer.complete(result[1]);
+    if (completer != null && completer.isCompleted == false) {
+      final exc = result[2];
+      if (exc != null) {
+        completer.completeError(exc);
+      } else {
+        completer.complete(result[1]);
+      }
+    }
   }
 }
 
 class _IsolateMessageToken {
+  int _initial = 0;
   _IsolateMessageToken.create();
 
-  int get key => hashCode;
+  int next() => _initial++;
 }
