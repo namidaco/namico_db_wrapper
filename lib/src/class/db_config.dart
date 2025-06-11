@@ -49,4 +49,19 @@ class DBConfig {
         createIfNotExist: createIfNotExist ?? this.createIfNotExist,
         autoDisposeTimerDuration: autoDisposeTimerDuration ?? this.autoDisposeTimerDuration,
       );
+
+  @override
+  bool operator ==(covariant DBConfig other) {
+    if (identical(this, other)) return true;
+
+    return other.encryptionKey == encryptionKey &&
+        listEquals(other.customTypes, customTypes) &&
+        other.createIfNotExist == createIfNotExist &&
+        other.autoDisposeTimerDuration == autoDisposeTimerDuration;
+  }
+
+  @override
+  int get hashCode {
+    return encryptionKey.hashCode ^ customTypes.hashCode ^ createIfNotExist.hashCode ^ autoDisposeTimerDuration.hashCode;
+  }
 }

@@ -1,3 +1,4 @@
+// ignore_for_file: public_member_api_docs, sort_constructors_first
 // ignore_for_file: unnecessary_this
 
 part of '../namico_db_wrapper.dart';
@@ -20,7 +21,14 @@ class DBWrapper extends DBWrapperAsync {
 
   /// Opens a db by specifying [directory] & [dbName] with optional [DBConfig.encryptionKey].
   ///
+  ///
+  /// {@template DBWrapper.open}
+  ///
   /// Passing [DBConfig.customTypes] can define how the table looks, otherwise the objects are saved as a json string in one column.
+  ///
+  /// Opening another database with the same info, returns the same instance as the previous one.
+  ///
+  /// {@endtemplate}
   static DBWrapperAsync open(
     String directory,
     String dbName, {
@@ -39,7 +47,7 @@ class DBWrapper extends DBWrapperAsync {
 
   /// Opens a db by specifying [fileInfo] with optional [DBConfig.encryptionKey].
   ///
-  /// Passing [DBConfig.customTypes] can define how the table looks, otherwise the objects are saved as a json string in one column.
+  /// {@macro DBWrapper.open}
   static DBWrapperAsync openFromInfo({
     required DbWrapperFileInfo fileInfo,
     DBConfig config = const DBConfig(),
@@ -135,6 +143,8 @@ class DBWrapper extends DBWrapperAsync {
 class DBWrapperSync with DBWrapperInterfaceSync {
   // == calling methods while db is disposed, will throw null check error.
 
+  static final _openedDBSync = <_DBKey, DBWrapperSync>{};
+
   /// The sqlite3 object that holds the db.
   Database? sql;
 
@@ -155,21 +165,24 @@ class DBWrapperSync with DBWrapperInterfaceSync {
     DBConfig config = const DBConfig(),
     void Function()? onClose,
   }) {
+    final dbKey = _DBKey(fileInfo: fileInfo, config: config);
+    final cachedDb = _openedDBSync[dbKey];
+    if (cachedDb != null) return cachedDb;
+
     final autoDisposeTimerDuration = config.autoDisposeTimerDuration;
-    if (autoDisposeTimerDuration == null) {
-      return DBWrapperSync._openFromInfo(
-        fileInfo: fileInfo,
-        config: config,
-        onClose: onClose,
-      );
-    } else {
-      return _DBWrapperSyncAutoDisposable._openFromInfo(
-        fileInfo: fileInfo,
-        config: config,
-        disposeTimerDuration: autoDisposeTimerDuration,
-        onClose: onClose,
-      );
-    }
+    final newInstance = autoDisposeTimerDuration == null
+        ? DBWrapperSync._openFromInfo(
+            fileInfo: fileInfo,
+            config: config,
+            onClose: onClose,
+          )
+        : _DBWrapperSyncAutoDisposable._openFromInfo(
+            fileInfo: fileInfo,
+            config: config,
+            disposeTimerDuration: autoDisposeTimerDuration,
+            onClose: onClose,
+          );
+    return _openedDBSync[dbKey] = newInstance;
   }
 
   DBWrapperSync._openFromInfo({
@@ -191,17 +204,20 @@ class DBWrapperSync with DBWrapperInterfaceSync {
     if (_isOpen) close(); // -- unpossible scemario but warever
 
     _isOpen = true;
-
-    final dbFile = fileInfo.file;
-    if (config.createIfNotExist && !dbFile.existsSync()) dbFile.createSync(recursive: true);
-    sql = sqlite3.open(fileInfo.dbOpenUriFinal, uri: true);
-    sql!.prepareDatabase(encryptionKey: config.encryptionKey, fileInfo: fileInfo, config: config);
-
-    _commandsManager = _DBCommandsManager(sql!, fileInfo.dbTableName, _commands);
-    if (createTable) _commandsManager.createTable();
-    _readSt = _commandsManager.buildReadKeyStatement();
-    if (_commands is DBCommands) _writeStDefault = _commandsManager.buildWriteStatement(null);
-    return this;
+    try {
+      final dbFile = fileInfo.file;
+      if (config.createIfNotExist && !dbFile.existsSync()) dbFile.createSync(recursive: true);
+      sql = sqlite3.open(fileInfo.dbOpenUriFinal, uri: true);
+      sql!.prepareDatabase(config: config);
+      _commandsManager = _DBCommandsManager(sql!, fileInfo.dbTableName, _commands);
+      if (createTable) _commandsManager.createTable();
+      _readSt = _commandsManager.buildReadKeyStatement();
+      if (_commands is DBCommands) _writeStDefault = _commandsManager.buildWriteStatement(null);
+      return this;
+    } catch (_) {
+      close();
+      rethrow;
+    }
   }
 
   PreparedStatement? _writeStDefault;
@@ -215,6 +231,8 @@ class DBWrapperSync with DBWrapperInterfaceSync {
   @override
   void close() {
     _isOpen = false;
+    final dbKey = _DBKey(fileInfo: fileInfo, config: config);
+    _openedDBSync.remove(dbKey);
 
     _readSt?.dispose();
     _writeStDefault?.dispose();
@@ -410,10 +428,27 @@ class DBWrapperSync with DBWrapperInterfaceSync {
 /// {@endtemplate}
 
 class DBWrapperAsync with DBWrapperInterfaceAsync {
+  static final _openedDBAsync = <_DBKey, DBWrapperAsync>{};
+
   final DbWrapperFileInfo fileInfo;
   final DBConfig config;
 
   final _DBIsolateManager _isolateManager;
+
+  factory DBWrapperAsync.openFromInfo({
+    required DbWrapperFileInfo fileInfo,
+    DBConfig config = const DBConfig(),
+  }) {
+    final dbKey = _DBKey(fileInfo: fileInfo, config: config);
+    final cachedDb = _openedDBAsync[dbKey];
+    if (cachedDb != null) return cachedDb;
+
+    final newInstance = DBWrapperAsync._openFromInfo(
+      fileInfo: fileInfo,
+      config: config,
+    );
+    return _openedDBAsync[dbKey] = newInstance;
+  }
 
   DBWrapperAsync._openFromInfo({
     required this.fileInfo,
@@ -429,7 +464,11 @@ class DBWrapperAsync with DBWrapperInterfaceAsync {
   bool get isOpen => _isolateManager.isInitialized;
 
   @override
-  Future<void> close() => _isolateManager.dispose();
+  Future<void> close() {
+    final dbKey = _DBKey(fileInfo: fileInfo, config: config);
+    _openedDBAsync.remove(dbKey);
+    return _isolateManager.dispose();
+  }
 
   /// In [DBWrapperAsync], it just re-initializes the isolate channel.
   @override
@@ -571,12 +610,9 @@ class _DBCommandsManager {
 }
 
 extension DatabaseUtils on Database {
-  void prepareDatabase({
-    String? encryptionKey,
-    required DbWrapperFileInfo fileInfo,
-    required DBConfig config,
-  }) {
+  void prepareDatabase({required DBConfig config}) {
     final sql = this;
+    final encryptionKey = config.encryptionKey;
     if (encryptionKey != null) {
       try {
         sql.execute('PRAGMA key = "$encryptionKey";');
@@ -600,7 +636,7 @@ extension DatabaseUtils on Database {
       journalModeCommand = 'PRAGMA journal_mode=$fallbackJournalMode; ';
     }
 
-    sql.execute("${journalModeCommand}PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA read_uncommitted = 1;");
+    sql.execute("${journalModeCommand}PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=15000; PRAGMA read_uncommitted=1;");
   }
 }
 
@@ -650,15 +686,43 @@ class _DBIsolateManager with PortsProvider<Map> {
     sendPort.send(recievePort.sendPort);
 
     NamicoDBWrapper.initialize();
-    final db = DBWrapperSync.openFromInfo(
-      fileInfo: fileInfo,
-      config: config,
-      onClose: () => sendPort.send(PortsProviderMessages.disposed),
-    );
+
+    DBWrapperSync? db;
+    int attemptsCount = 0;
+    while (db == null) {
+      try {
+        db = DBWrapperSync.openFromInfo(
+          fileInfo: fileInfo,
+          config: config,
+          onClose: () => sendPort.send(PortsProviderMessages.disposed),
+        );
+      } on SqliteException catch (sqlException) {
+        if (sqlException.resultCode == 261 || sqlException.extendedResultCode == 261) {
+          await Future.delayed(Duration(milliseconds: 200));
+        }
+      } finally {
+        attemptsCount++;
+      }
+      if (attemptsCount > 20) break;
+    }
+
+    if (kDebugMode) {
+      if (attemptsCount > 1) {
+        final msg = db == null ? 'failed to open db after $attemptsCount attempts :(' : 'opened db after $attemptsCount attempts :)';
+        debugPrint('_DBIsolateManager._prepareResourcesAndListen: $msg. ${db?.fileInfo.file}');
+      }
+    }
+
+    if (db == null) {
+      sendPort.send(PortsProviderMessages.disposed);
+      return;
+    }
 
     // -- start listening
     StreamSubscription? streamSub;
     streamSub = recievePort.listen((p) async {
+      db!;
+
       if (PortsProvider.isDisposeMessage(p)) {
         recievePort.close();
         streamSub?.cancel();
@@ -728,4 +792,21 @@ class _IsolateMessageToken {
   _IsolateMessageToken.create();
 
   int next() => _initial++;
+}
+
+class _DBKey {
+  final DbWrapperFileInfo fileInfo;
+  final DBConfig config;
+
+  const _DBKey({required this.fileInfo, required this.config});
+
+  @override
+  bool operator ==(covariant _DBKey other) {
+    if (identical(this, other)) return true;
+
+    return other.fileInfo == fileInfo && other.config == config;
+  }
+
+  @override
+  int get hashCode => fileInfo.hashCode ^ config.hashCode;
 }

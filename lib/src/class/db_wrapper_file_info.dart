@@ -41,6 +41,24 @@ class DbWrapperFileInfo {
 
   @override
   String toString() {
-    return 'DbWrapperFileInfo(file: $file, directory: $directory, dbName: $dbName, filenameActual: $filenameActual, extension: $extension)';
+    return 'DbWrapperFileInfo(file: $file, directory: $directory, dbName: $dbName, filenameActual: $filenameActual, extension: $extension, dbTableName: $dbTableName, dbOpenUriFinal: $dbOpenUriFinal)';
+  }
+
+  @override
+  bool operator ==(covariant DbWrapperFileInfo other) {
+    if (identical(this, other)) return true;
+
+    return other.file.path == file.path &&
+        other.directory == directory &&
+        other.dbName == dbName &&
+        other.filenameActual == filenameActual &&
+        other.extension == extension &&
+        other.dbTableName == dbTableName &&
+        other.dbOpenUriFinal == dbOpenUriFinal;
+  }
+
+  @override
+  int get hashCode {
+    return file.path.hashCode ^ directory.hashCode ^ dbName.hashCode ^ filenameActual.hashCode ^ extension.hashCode ^ dbTableName.hashCode ^ dbOpenUriFinal.hashCode;
   }
 }
