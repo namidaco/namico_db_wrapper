@@ -384,6 +384,7 @@ class DBWrapperSync with DBWrapperInterfaceSync {
 
   void putAll<E>(DBWriteList writeList) {
     final items = writeList.items;
+    if (items.isEmpty) return;
     for (int i = 0; i < items.length; i++) {
       final item = items[i];
       put(item.key, item.value);
@@ -397,6 +398,7 @@ class DBWrapperSync with DBWrapperInterfaceSync {
 
   @override
   void deleteBulk(List<String> keys) {
+    if (keys.isEmpty) return;
     final st = _commandsManager.buildDeleteStatement(keys);
     try {
       return st.execute(keys);
@@ -521,12 +523,14 @@ class DBWrapperAsync with DBWrapperInterfaceAsync {
 
   @override
   Future<void> putAll<E>(List<E> items, CacheWriteItemToEntryCallback<E> itemToEntry) {
+    if (items.isEmpty) return Future.value(null);
     final entries = DBWriteList.fromList(items, itemToEntry);
     return _writeAsync(entries);
   }
 
   @override
   Future<void> putAllIterable<E>(Iterable<E> items, CacheWriteItemToEntryCallback<E> itemToEntry) {
+    if (items.isEmpty) return Future.value(null);
     final entries = DBWriteList.fromIterable(items, itemToEntry);
     return _writeAsync(entries);
   }
@@ -539,6 +543,7 @@ class DBWrapperAsync with DBWrapperInterfaceAsync {
 
   @override
   Future<void> deleteBulk(List<String> keys) {
+    if (keys.isEmpty) return Future.value(null);
     final command = _IsolateEncodable.deleteBulk(keys);
     return _executeAsync(command);
   }
@@ -550,6 +555,7 @@ class DBWrapperAsync with DBWrapperInterfaceAsync {
   }
 
   Future<void> _writeAsync(DBWriteList writeList) {
+    if (writeList.items.isEmpty) return Future.value(null);
     final writeListEnc = _IsolateEncodable.writeList(writeList);
     return _executeAsync(writeListEnc);
   }
