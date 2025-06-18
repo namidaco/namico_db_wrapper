@@ -36,14 +36,14 @@ mixin PortsProvider<E> {
   static bool isDisposeMessage(dynamic message) => message == PortsProviderMessages.disposed;
 
   @protected
-  Future<void> disposePort() async {
+  Future<void> disposePort({bool resetCompleter = true}) async {
     _recievePort?.close();
     _streamSub?.cancel();
     await sendPort(PortsProviderMessages.disposed);
     _isolate?.kill();
     _isInitialized = false;
     onPreparing(false);
-    _initializingCompleter = null;
+    if (resetCompleter) _initializingCompleter = null;
     _portCompleter = null;
     _recievePort = null;
     _streamSub = null;
@@ -57,10 +57,10 @@ mixin PortsProvider<E> {
     final portN = _portCompleter;
     if (portN != null) return await portN.future;
 
-    await disposePort();
+    _initializingCompleter = Completer<void>(); // set early to prevent double init
+    await disposePort(resetCompleter: false);
     final portCompleter = _portCompleter = Completer<SendPort>();
     _recievePort = ReceivePort();
-    _initializingCompleter = Completer<void>();
     _streamSub = _recievePort?.listen((result) {
       if (result is SendPort) {
         if (portCompleter.isCompleted == false) portCompleter.complete(result);

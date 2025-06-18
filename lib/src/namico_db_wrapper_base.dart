@@ -669,7 +669,7 @@ class _DBIsolateManager with PortsProvider<Map> {
     final completer = _completers[token] = Completer<dynamic>();
     sendPort([token, command]);
     var res = await completer.future;
-    _completers[token] = null; // dereferencing
+    _completers.remove(token); // dereferencing
     return res;
   }
 
