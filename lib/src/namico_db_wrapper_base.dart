@@ -703,7 +703,9 @@ class _DBIsolateManager with PortsProvider<Map> {
           onClose: () => sendPort.send(PortsProviderMessages.disposed),
         );
       } on SqliteException catch (sqlException) {
-        if (sqlException.resultCode == 261 || sqlException.extendedResultCode == 261) {
+        bool checkCode(int code) => sqlException.resultCode == code || sqlException.extendedResultCode == code;
+        bool checkMessage(String containsText) => sqlException.message.contains(containsText) || (sqlException.explanation?.contains(containsText) == true);
+        if (checkCode(261) || checkCode(5) || checkMessage('database is locked')) {
           await Future.delayed(Duration(milliseconds: 200));
         }
       } finally {
