@@ -20,6 +20,11 @@ class DBWrapperMain extends DBWrapperMainBase<DBWrapperAsync> {
   }
 
   @override
+  DBWrapperAsync _createDBSync(String directory, String dbName, {DBConfig config = const DBConfig()}) {
+    return DBWrapper.open(directory, dbName, config: config);
+  }
+
+  @override
   Future<void>? close(String dbName) => _openDB[dbName]?.close();
 
   @override
@@ -44,7 +49,12 @@ class DBWrapperMainSync extends DBWrapperMainBase<DBWrapperSync> {
   bool _isOpen(DBWrapperSync box) => box.isOpen;
 
   @override
-  DBWrapperSync _createDB(String directory, String dbName, {DBConfig config = const DBConfig()}) {
+  Future<DBWrapperSync> _createDB(String directory, String dbName, {DBConfig config = const DBConfig()}) async {
+    return (await DBWrapper.openSyncTry(directory, dbName, config: config))!;
+  }
+
+  @override
+  DBWrapperSync _createDBSync(String directory, String dbName, {DBConfig config = const DBConfig()}) {
     return DBWrapper.openSync(directory, dbName, config: config);
   }
 
@@ -72,16 +82,15 @@ class DBWrapperMainSyncAsync extends DBWrapperMainBase<DBWrapper> {
   });
 
   @override
-  DBWrapper getDB(
-    String dbName, {
-    DBConfig config = const DBConfig(),
-  });
-
-  @override
   bool _isOpen(DBWrapper box) => box.isOpen;
 
   @override
-  DBWrapper _createDB(String directory, String dbName, {DBConfig config = const DBConfig()}) {
+  Future<DBWrapper> _createDB(String directory, String dbName, {DBConfig config = const DBConfig()}) async {
+    return (await DBWrapper.openSyncAsyncTry(directory, dbName, config: config))!;
+  }
+
+  @override
+  _createDBSync(String directory, String dbName, {DBConfig config = const DBConfig()}) async {
     return DBWrapper.openSyncAsync(directory, dbName, config: config);
   }
 
@@ -112,12 +121,13 @@ abstract class DBWrapperMainBase<D extends DBWrapperInterfaceSync> {
 
   bool _isOpen(D box);
 
-  D _createDB(String directory, String dbName, {DBConfig config = const DBConfig()});
+  FutureOr<D> _createDB(String directory, String dbName, {DBConfig config = const DBConfig()});
+  D _createDBSync(String directory, String dbName, {DBConfig config = const DBConfig()});
 
   final _openDB = <String, D>{};
 
-  /// opens a new db or returns the already opened one. see [DBWrapper.open] or [DBWrapperSync.open] for internal implementation
-  D getDB(
+  /// sync version of [getDB], prefer [getDB] to avoid db open lock errors.
+  D getDBSync(
     String dbName, {
     DBConfig config = const DBConfig(),
   }) {
@@ -125,7 +135,26 @@ abstract class DBWrapperMainBase<D extends DBWrapperInterfaceSync> {
     if (box != null && _isOpen(box)) return box;
 
     final dir = _defaultDirectory;
-    final newDB = _createDB(
+    final newDB = _createDBSync(
+      dir,
+      dbName,
+      config: config,
+    );
+    _openDB[dbName] = newDB;
+    if (onFirstOpen != null) onFirstOpen!(newDB);
+    return newDB;
+  }
+
+  /// opens a new db or returns the already opened one. see [DBWrapper.open] or [DBWrapperSync.open] for internal implementation
+  FutureOr<D> getDB(
+    String dbName, {
+    DBConfig config = const DBConfig(),
+  }) async {
+    final box = _openDB[dbName];
+    if (box != null && _isOpen(box)) return box;
+
+    final dir = _defaultDirectory;
+    final newDB = await _createDB(
       dir,
       dbName,
       config: config,

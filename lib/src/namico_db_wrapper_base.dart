@@ -131,6 +131,98 @@ class DBWrapper extends DBWrapperAsync {
     sync.close();
     return await super.close();
   }
+
+  // ===== try methods =====
+
+  static Future<DBWrapperSync?> openSyncTry(
+    String directory,
+    String dbName, {
+    DBConfig config = const DBConfig(),
+  }) {
+    return DBWrapper._tryOpenDB(
+      () => DBWrapper.openSync(
+        directory,
+        dbName,
+        config: config,
+      ),
+    );
+  }
+
+  static Future<DBWrapperSync?> openFromInfoSyncTry({
+    required DbWrapperFileInfo fileInfo,
+    DBConfig config = const DBConfig(),
+  }) {
+    return DBWrapper._tryOpenDB(
+      () => DBWrapper.openFromInfoSync(
+        fileInfo: fileInfo,
+        config: config,
+      ),
+    );
+  }
+
+  static Future<DBWrapper?> openSyncAsyncTry(
+    String directory,
+    String dbName, {
+    DBConfig config = const DBConfig(),
+  }) {
+    final fileInfo = DbWrapperFileInfo(
+      directory: directory,
+      dbName: dbName,
+      encryptionKey: config.encryptionKey,
+    );
+    return DBWrapper.openFromInfoSyncAsyncTry(
+      fileInfo: fileInfo,
+      config: config,
+    );
+  }
+
+  static Future<DBWrapper?> openFromInfoSyncAsyncTry({
+    required DbWrapperFileInfo fileInfo,
+    DBConfig config = const DBConfig(),
+  }) async {
+    final sync = await DBWrapper._tryOpenDB(
+      () => DBWrapperSync._openFromInfo(
+        fileInfo: fileInfo,
+        config: config,
+      ),
+    );
+    if (sync == null) return null;
+    return DBWrapper._(
+      sync: sync,
+      fileInfo: fileInfo,
+      config: config,
+    );
+  }
+
+  /// try open a db by retrying for [maxAttempts] times in case it was locked.
+  static Future<T?> _tryOpenDB<T>(T? Function() openFn, {int maxAttempts = 20, File? reportDbFile}) async {
+    T? db;
+    int attemptsCount = 0;
+    while (db == null) {
+      try {
+        db = openFn();
+      } on SqliteException catch (sqlException) {
+        bool checkCode(int code) => sqlException.resultCode == code || sqlException.extendedResultCode == code;
+        bool checkMessage(String containsText) => sqlException.message.contains(containsText) || (sqlException.explanation?.contains(containsText) == true);
+        if (checkCode(261) || checkCode(5) || checkMessage('database is locked')) {
+          await Future.delayed(Duration(milliseconds: 200));
+        }
+      } finally {
+        attemptsCount++;
+      }
+      if (attemptsCount > 20) break;
+    }
+
+    if (kDebugMode) {
+      if (attemptsCount > 1) {
+        String msg = db == null ? 'failed to open db after $attemptsCount attempts :(' : 'opened db after $attemptsCount attempts :)';
+        if (reportDbFile != null) msg += ". $reportDbFile";
+        debugPrint('DBWrapper._tryOpenDB: $msg');
+      }
+    }
+
+    return db;
+  }
 }
 
 /// {@template DBWrapperSync}
@@ -693,33 +785,14 @@ class _DBIsolateManager with PortsProvider<Map> {
 
     NamicoDBWrapper.initialize();
 
-    DBWrapperSync? db;
-    int attemptsCount = 0;
-    while (db == null) {
-      try {
-        db = DBWrapperSync.openFromInfo(
-          fileInfo: fileInfo,
-          config: config,
-          onClose: () => sendPort.send(PortsProviderMessages.disposed),
-        );
-      } on SqliteException catch (sqlException) {
-        bool checkCode(int code) => sqlException.resultCode == code || sqlException.extendedResultCode == code;
-        bool checkMessage(String containsText) => sqlException.message.contains(containsText) || (sqlException.explanation?.contains(containsText) == true);
-        if (checkCode(261) || checkCode(5) || checkMessage('database is locked')) {
-          await Future.delayed(Duration(milliseconds: 200));
-        }
-      } finally {
-        attemptsCount++;
-      }
-      if (attemptsCount > 20) break;
-    }
-
-    if (kDebugMode) {
-      if (attemptsCount > 1) {
-        final msg = db == null ? 'failed to open db after $attemptsCount attempts :(' : 'opened db after $attemptsCount attempts :)';
-        debugPrint('_DBIsolateManager._prepareResourcesAndListen: $msg. ${db?.fileInfo.file}');
-      }
-    }
+    DBWrapperSync? db = await DBWrapper._tryOpenDB(
+      () => DBWrapperSync.openFromInfo(
+        fileInfo: fileInfo,
+        config: config,
+        onClose: () => sendPort.send(PortsProviderMessages.disposed),
+      ),
+      reportDbFile: fileInfo.file,
+    );
 
     if (db == null) {
       sendPort.send(PortsProviderMessages.disposed);
@@ -729,8 +802,6 @@ class _DBIsolateManager with PortsProvider<Map> {
     // -- start listening
     StreamSubscription? streamSub;
     streamSub = recievePort.listen((p) async {
-      db!;
-
       if (PortsProvider.isDisposeMessage(p)) {
         recievePort.close();
         streamSub?.cancel();
