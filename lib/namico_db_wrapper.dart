@@ -8,6 +8,7 @@ import 'dart:isolate';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+
 import 'package:sqlite3/open.dart' as sqlopen;
 import 'package:sqlite3/sqlite3.dart';
 
@@ -43,6 +44,15 @@ class NamicoDBWrapper {
     sqlopen.open.overrideForAll(() {
       return _lib ??= _sqlcipherOpen();
     });
+  }
+
+  static Future<void> dispose() async {
+    final openedDBSync = DBWrapperSync._openedDBSync.values.toList();
+    for (final db in openedDBSync) {
+      db.close();
+    }
+    final openedDBAsync = DBWrapperAsync._openedDBAsync.values.toList();
+    await Future.wait(openedDBAsync.map((db) => db.close().catchError((_) {})));
   }
 }
 
