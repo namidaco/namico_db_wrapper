@@ -113,6 +113,12 @@ class _DBWrapperSyncAutoDisposable extends DBWrapperSync with _DBDisposeTimerMan
   }
 
   @override
+  void checkpoint() {
+    _ensureDbOpen();
+    super.checkpoint();
+  }
+
+  @override
   void delete(String key) {
     _ensureDbOpen();
     super.delete(key);

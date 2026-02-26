@@ -15,6 +15,13 @@ class _IsolateEncodableClaimFreeSpace extends _IsolateEncodable {
   void execute(DBWrapperSync db) => db.claimFreeSpace();
 }
 
+class _IsolateEncodableCheckpoint extends _IsolateEncodable {
+  const _IsolateEncodableCheckpoint();
+
+  @override
+  void execute(DBWrapperSync db) => db.checkpoint();
+}
+
 class _IsolateEncodableDelete extends _IsolateEncodable {
   final String key;
   const _IsolateEncodableDelete(this.key);

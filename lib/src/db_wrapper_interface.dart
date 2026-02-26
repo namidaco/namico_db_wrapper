@@ -8,6 +8,9 @@ abstract mixin class DBWrapperInterfaceAsync<D> implements DBWrapperInterfaceSyn
   Future<void> claimFreeSpace();
 
   @override
+  Future<void> checkpoint();
+
+  @override
   Future<List<Map<String, dynamic>>> loadEverythingResult();
 
   @override
@@ -49,6 +52,9 @@ abstract mixin class DBWrapperInterfaceSync {
 
   /// Claim free space after duplicate inserts or deletions. this can be an expensive operation
   FutureOr<void> claimFreeSpace();
+
+  /// Merge wal files into the main db file
+  FutureOr<void> checkpoint();
 
   /// Load all rows inside the db. if [DBConfig.customTypes] are provided then the key will exist in the map provided, otherwise see [loadEverythingKeyed].
   FutureOr<List<Map<String, dynamic>>> loadEverythingResult();

@@ -348,13 +348,17 @@ class DBWrapperSync with DBWrapperInterfaceSync {
     );
   }
 
-  /// Claim free space after duplicate inserts or deletions. this can be an expensive operation
   @override
   void claimFreeSpace() {
     try {
       sql!.execute(_commands.checkpointCommand()); // force a checkpoint to merge wal content to db.
     } catch (_) {}
     sql!.execute(_commands.vacuumCommand());
+  }
+
+  @override
+  void checkpoint() {
+    sql!.execute(_commands.checkpointCommand());
   }
 
   @override
@@ -576,6 +580,9 @@ class DBWrapperAsync with DBWrapperInterfaceAsync {
 
   @override
   Future<void> claimFreeSpace() => _executeAsync(const _IsolateEncodable.claimFreeSpace());
+
+  @override
+  Future<void> checkpoint() => _executeAsync(const _IsolateEncodable.checkpoint());
 
   @override
   Future<List<Map<String, dynamic>>> loadEverythingResult() async => await _executeAsync(const _IsolateEncodable.loadEverything());

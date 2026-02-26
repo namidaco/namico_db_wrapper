@@ -31,7 +31,7 @@ abstract interface class DBCommandsBase {
   String deleteEverythingCommand(String tableName) => 'DELETE FROM $tableName';
 
   String vacuumCommand() => 'VACUUM';
-  String checkpointCommand() => 'PRAGMA wal_checkpoint';
+  String checkpointCommand() => 'PRAGMA wal_checkpoint(TRUNCATE)';
 
   /// Alters the table by adding columns if required.
   void alterIfRequired(String tableName, Database sql);
