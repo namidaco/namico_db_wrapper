@@ -381,11 +381,11 @@ class DBWrapperSync with DBWrapperInterfaceSync {
   }
 
   @override
-  void claimFreeSpace() {
+  void claimFreeSpaceAndCheckpoint() {
+    sql!.execute(_commands.vacuumCommand());
     try {
       sql!.execute(_commands.checkpointCommand()); // force a checkpoint to merge wal content to db.
     } catch (_) {}
-    sql!.execute(_commands.vacuumCommand());
   }
 
   @override
@@ -536,7 +536,7 @@ class DBWrapperSync with DBWrapperInterfaceSync {
   }
 
   @override
-  void deleteEverything({bool claimFreeSpace = true}) {
+  void deleteEverything({bool claimFreeSpaceAndCheckpoint = true}) {
     final st = _commandsManager.buildDeleteEverythingStatement();
     try {
       st.execute();
@@ -544,7 +544,7 @@ class DBWrapperSync with DBWrapperInterfaceSync {
       st.dispose();
     }
 
-    if (claimFreeSpace) this.claimFreeSpace();
+    if (claimFreeSpaceAndCheckpoint) this.claimFreeSpaceAndCheckpoint();
   }
 }
 
@@ -611,7 +611,7 @@ class DBWrapperAsync with DBWrapperInterfaceAsync {
   Future<void> _prepareIsolateChannel() => _isolateManager.initialize();
 
   @override
-  Future<void> claimFreeSpace() => _executeAsync(const _IsolateEncodable.claimFreeSpace());
+  Future<void> claimFreeSpaceAndCheckpoint() => _executeAsync(const _IsolateEncodable.claimFreeSpaceAndCheckpoint());
 
   @override
   Future<void> checkpoint() => _executeAsync(const _IsolateEncodable.checkpoint());
@@ -680,8 +680,8 @@ class DBWrapperAsync with DBWrapperInterfaceAsync {
   }
 
   @override
-  Future<void> deleteEverything({bool claimFreeSpace = true}) {
-    final exc = claimFreeSpace ? const _IsolateEncodable.deleteEverythingAndClaimSpace() : const _IsolateEncodable.deleteEverything();
+  Future<void> deleteEverything({bool claimFreeSpaceAndCheckpoint = true}) {
+    final exc = claimFreeSpaceAndCheckpoint ? const _IsolateEncodable.deleteEverythingAndClaimSpace() : const _IsolateEncodable.deleteEverything();
     return _executeAsync(exc);
   }
 

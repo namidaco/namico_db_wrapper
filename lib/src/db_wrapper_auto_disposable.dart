@@ -4,7 +4,7 @@ part of '../namico_db_wrapper.dart';
 
 /// A Wrapper around [DBWrapperAsync] that automatically disposes the db when not in use, and reinit when necessary.
 /// The Duration is indicated by [disposeTimerDuration].
-/// Disposable operations like [claimFreeSpace], [delete], [deleteBulk], [deleteEverything] will not mark the db as in use.
+/// Disposable operations like [claimFreeSpaceAndCheckpoint], [delete], [deleteBulk], [deleteEverything] will not mark the db as in use.
 class _DBWrapperSyncAutoDisposable extends DBWrapperSync with _DBDisposeTimerManager {
   final Duration disposeTimerDuration;
 
@@ -107,9 +107,9 @@ class _DBWrapperSyncAutoDisposable extends DBWrapperSync with _DBDisposeTimerMan
 
   // ===== Methods that don't affect the timer
   @override
-  void claimFreeSpace() {
+  void claimFreeSpaceAndCheckpoint() {
     _ensureDbOpen();
-    super.claimFreeSpace();
+    super.claimFreeSpaceAndCheckpoint();
   }
 
   @override
@@ -131,9 +131,9 @@ class _DBWrapperSyncAutoDisposable extends DBWrapperSync with _DBDisposeTimerMan
   }
 
   @override
-  void deleteEverything({bool claimFreeSpace = true}) {
+  void deleteEverything({bool claimFreeSpaceAndCheckpoint = true}) {
     _ensureDbOpen();
-    return super.deleteEverything(claimFreeSpace: claimFreeSpace);
+    return super.deleteEverything(claimFreeSpaceAndCheckpoint: claimFreeSpaceAndCheckpoint);
   }
 }
 

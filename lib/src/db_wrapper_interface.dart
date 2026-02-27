@@ -5,7 +5,7 @@ abstract mixin class DBWrapperInterfaceAsync<D> implements DBWrapperInterfaceSyn
   Future<DBWrapperInterfaceAsync> reOpen();
 
   @override
-  Future<void> claimFreeSpace();
+  Future<void> claimFreeSpaceAndCheckpoint();
 
   @override
   Future<void> checkpoint();
@@ -38,7 +38,7 @@ abstract mixin class DBWrapperInterfaceAsync<D> implements DBWrapperInterfaceSyn
   Future<void> delete(String key);
 
   @override
-  Future<void> deleteEverything({required bool claimFreeSpace});
+  Future<void> deleteEverything({required bool claimFreeSpaceAndCheckpoint});
 
   @override
   Future<void> close();
@@ -50,8 +50,10 @@ abstract mixin class DBWrapperInterfaceSync {
 
   FutureOr<DBWrapperInterfaceSync> reOpen();
 
-  /// Claim free space after duplicate inserts or deletions. this can be an expensive operation
-  FutureOr<void> claimFreeSpace();
+  /// Claim free space after duplicate inserts or deletions. this can be an expensive operation.
+  ///
+  /// this by default calls [checkpoint] after to merge content.
+  FutureOr<void> claimFreeSpaceAndCheckpoint();
 
   /// Merge wal files into the main db file
   FutureOr<void> checkpoint();
@@ -86,7 +88,7 @@ abstract mixin class DBWrapperInterfaceSync {
   FutureOr<void> deleteBulk(List<String> keys);
 
   /// delete all rows inside the db.
-  FutureOr<void> deleteEverything({required bool claimFreeSpace});
+  FutureOr<void> deleteEverything({required bool claimFreeSpaceAndCheckpoint});
 
   /// close the db and free allocated resources.
   FutureOr<void> close();

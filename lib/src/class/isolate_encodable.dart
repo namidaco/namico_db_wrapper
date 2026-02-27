@@ -13,7 +13,7 @@ abstract class _IsolateEncodable {
   const factory _IsolateEncodable.loadAllKeys() = _IsolateEncodableLoadAllKeys;
 
   const factory _IsolateEncodable.writeList(DBWriteList writeList) = _IsolateEncodableWriteList;
-  const factory _IsolateEncodable.claimFreeSpace() = _IsolateEncodableClaimFreeSpace;
+  const factory _IsolateEncodable.claimFreeSpaceAndCheckpoint() = _IsolateEncodableClaimFreeSpaceAndCheckpoint;
   const factory _IsolateEncodable.checkpoint() = _IsolateEncodableCheckpoint;
   const factory _IsolateEncodable.delete(String key) = _IsolateEncodableDelete;
   const factory _IsolateEncodable.deleteBulk(List<String> keys) = _IsolateEncodableDeleteBulk;

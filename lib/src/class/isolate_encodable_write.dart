@@ -8,11 +8,11 @@ class _IsolateEncodableWriteList extends _IsolateEncodable {
   void execute(DBWrapperSync db) => db.putAll(writeList);
 }
 
-class _IsolateEncodableClaimFreeSpace extends _IsolateEncodable {
-  const _IsolateEncodableClaimFreeSpace();
+class _IsolateEncodableClaimFreeSpaceAndCheckpoint extends _IsolateEncodable {
+  const _IsolateEncodableClaimFreeSpaceAndCheckpoint();
 
   @override
-  void execute(DBWrapperSync db) => db.claimFreeSpace();
+  void execute(DBWrapperSync db) => db.claimFreeSpaceAndCheckpoint();
 }
 
 class _IsolateEncodableCheckpoint extends _IsolateEncodable {
@@ -42,12 +42,12 @@ class _IsolateEncodableDeleteEverything extends _IsolateEncodable {
   const _IsolateEncodableDeleteEverything();
 
   @override
-  void execute(DBWrapperSync db) => db.deleteEverything(claimFreeSpace: false);
+  void execute(DBWrapperSync db) => db.deleteEverything(claimFreeSpaceAndCheckpoint: false);
 }
 
 class _IsolateEncodableDeleteEverythingAndClaimSpace extends _IsolateEncodable {
   const _IsolateEncodableDeleteEverythingAndClaimSpace();
 
   @override
-  void execute(DBWrapperSync db) => db.deleteEverything(claimFreeSpace: true);
+  void execute(DBWrapperSync db) => db.deleteEverything(claimFreeSpaceAndCheckpoint: true);
 }
