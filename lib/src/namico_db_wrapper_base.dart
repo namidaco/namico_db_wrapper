@@ -45,6 +45,23 @@ class DBWrapper extends DBWrapperAsync {
     );
   }
 
+  /// Opens a db by specifying [file] with optional [DBConfig.encryptionKey].
+  ///
+  /// {@macro DBWrapper.open}
+  static DBWrapperAsync openFromFile(
+    File file, {
+    DBConfig config = const DBConfig(),
+  }) {
+    final fileInfo = DbWrapperFileInfo.fromFile(
+      dbFile: file,
+      encryptionKey: config.encryptionKey,
+    );
+    return DBWrapper.openFromInfo(
+      fileInfo: fileInfo,
+      config: config,
+    );
+  }
+
   /// Opens a db by specifying [fileInfo] with optional [DBConfig.encryptionKey].
   ///
   /// {@macro DBWrapper.open}
@@ -70,6 +87,21 @@ class DBWrapper extends DBWrapperAsync {
       encryptionKey: config.encryptionKey,
     );
     return DBWrapperSync.openFromInfo(
+      fileInfo: fileInfo,
+      config: config,
+    );
+  }
+
+  /// Sync version of [DBWrapper.openFromFile].
+  static DBWrapperSync openFromFileSync(
+    File file, {
+    DBConfig config = const DBConfig(),
+  }) {
+    final fileInfo = DbWrapperFileInfo.fromFile(
+      dbFile: file,
+      encryptionKey: config.encryptionKey,
+    );
+    return DBWrapperSync._openFromInfo(
       fileInfo: fileInfo,
       config: config,
     );

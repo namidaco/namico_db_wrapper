@@ -1,6 +1,6 @@
 name: namico_db_wrapper
 description: A Wrapper around sqlite3 with encryption support.
-version: 4.2.7
+version: 4.2.8
 repository: https://github.com/namidaco/namico_db_wrapper
 
 environment:
@@ -12,6 +12,7 @@ dependencies:
     sdk: flutter
   sqlite3: ^2.9.4
   sqlcipher_flutter_libs: ^0.6.3
+  path: ^1.9.1
 
 dev_dependencies:
   lints: ^6.0.0

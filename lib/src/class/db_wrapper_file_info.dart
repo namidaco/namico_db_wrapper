@@ -38,6 +38,24 @@ class DbWrapperFileInfo {
       dbOpenUriFinal: dbOpenUriFinal,
     );
   }
+  factory DbWrapperFileInfo.fromFile({required File dbFile, String? encryptionKey}) {
+    final path = dbFile.path;
+    final directory = p.dirname(path);
+    final actualFilename = p.basename(path);
+    final dbName = p.basenameWithoutExtension(path);
+    final extension = p.extension(path);
+    final uri = Uri.file(dbFile.path);
+    final dbOpenUriFinal = "$uri?cache=shared";
+
+    return DbWrapperFileInfo._(
+      directory: directory,
+      dbName: dbName,
+      filenameActual: actualFilename,
+      extension: extension,
+      file: dbFile,
+      dbOpenUriFinal: dbOpenUriFinal,
+    );
+  }
 
   @override
   String toString() {

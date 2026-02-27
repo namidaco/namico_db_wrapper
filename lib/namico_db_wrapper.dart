@@ -9,6 +9,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import 'package:path/path.dart' as p;
 import 'package:sqlite3/open.dart' as sqlopen;
 import 'package:sqlite3/sqlite3.dart';
 
