@@ -242,7 +242,7 @@ class DBWrapper extends DBWrapperAsync {
       } finally {
         attemptsCount++;
       }
-      if (attemptsCount > 20) break;
+      if (attemptsCount > maxAttempts) break;
     }
 
     if (kDebugMode) {
@@ -791,6 +791,12 @@ class _DBIsolateManager with PortsProvider<Map> {
 
   Future<void> dispose() async {
     if (isInitialized) await disposePort();
+
+    final pendingCompleters = _completers.values.toList();
+    _completers.clear();
+    for (final c in pendingCompleters) {
+      c?.completeError(Exception('DB was closed before receiving result'));
+    }
   }
 
   Future<dynamic> executeIsolate(_IsolateEncodable command) async {
@@ -834,6 +840,7 @@ class _DBIsolateManager with PortsProvider<Map> {
     );
 
     if (db == null) {
+      sendPort.send(PortsProviderMessages.prepared); // send prepared first to assign ports
       sendPort.send(PortsProviderMessages.disposed);
       return;
     }
