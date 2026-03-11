@@ -540,11 +540,51 @@ class DBWrapperSync with DBWrapperInterfaceSync {
     final st = _commandsManager.buildDeleteEverythingStatement();
     try {
       st.execute();
+    } catch (_) {
+      _nukeDatabaseFilesAndRecreate();
+      return;
     } finally {
       st.dispose();
     }
 
     if (claimFreeSpaceAndCheckpoint) this.claimFreeSpaceAndCheckpoint();
+  }
+
+  void _nukeDatabaseFilesAndRecreate() {
+    try {
+      close();
+    } catch (_) {}
+
+    final dbPath = fileInfo.file.path;
+    const kDBNamesSuffixes = <String>{'', '-wal', '-shm', '-journal'};
+    for (final suffix in kDBNamesSuffixes) {
+      _deleteWithRetry('$dbPath$suffix');
+    }
+
+    _openFromInfoInternal(
+      fileInfo: fileInfo,
+      config: config.copyWith(createIfNotExist: true),
+      createTable: true,
+    );
+  }
+
+  /// Desperate attempt to overcome windows file lock not being released after [close].
+  /// Other platforms could benefit from the retries too.
+  void _deleteWithRetry(String path) {
+    final file = File(path);
+    if (!file.existsSync()) return;
+
+    for (int i = 0; i < 5; i++) {
+      try {
+        file.deleteSync();
+        return;
+      } catch (_) {
+        sleep(const Duration(milliseconds: 100));
+      }
+    }
+    try {
+      file.writeAsBytesSync([]);
+    } catch (_) {}
   }
 }
 
