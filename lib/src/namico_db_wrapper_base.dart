@@ -828,27 +828,40 @@ class _DBIsolateManager with PortsProvider<Map> {
   });
 
   final _tokenManager = _IsolateMessageToken.create();
-  final _completers = <int, Completer<dynamic>?>{};
+  final _completers = <int, Completer<dynamic>>{};
 
-  Future<void> dispose() async {
+  Future<void> dispose({bool beGentle = true}) async {
+    // -- give a small chance for queued operations to finish before closing
+    if (_completers.isNotEmpty && beGentle) {
+      await Future.microtask(() {}); // -- drain already queued port messages
+      if (_completers.isNotEmpty) {
+        // -- wait up to 500ms
+        const interval = Duration(milliseconds: 50);
+        for (int i = 0; i < 10 && _completers.isNotEmpty; i++) {
+          await Future.delayed(interval);
+        }
+      }
+    }
+
     if (isInitialized) await disposePort();
 
-    final pendingCompleters = _completers.values.toList();
-    _completers.clear();
-    for (final c in pendingCompleters) {
-      c?.completeError(Exception('DB was closed before receiving result'));
+    if (_completers.isNotEmpty) {
+      final pendingCompleters = _completers.values.toList();
+      _completers.clear();
+
+      final err = DatabaseDisposedEarlyException(fileInfo: fileInfo, config: config);
+      for (final c in pendingCompleters) {
+        c.completeError(err);
+      }
     }
   }
 
   Future<dynamic> executeIsolate(_IsolateEncodable command) async {
     if (!isInitialized) await initialize();
     final token = _tokenManager.next();
-    _completers[token]?.complete(null); // useless but anyways
     final completer = _completers[token] = Completer<dynamic>();
     sendPort([token, command]);
-    var res = await completer.future;
-    _completers.remove(token); // dereferencing
-    return res;
+    return await completer.future;
   }
 
   @override
@@ -939,7 +952,7 @@ class _DBIsolateManager with PortsProvider<Map> {
     }
 
     final token = result[0] as int;
-    final completer = _completers[token];
+    final completer = _completers.remove(token);
     if (completer != null && completer.isCompleted == false) {
       final exc = result[2];
       if (exc != null) {

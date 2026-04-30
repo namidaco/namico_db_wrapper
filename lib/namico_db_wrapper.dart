@@ -24,6 +24,7 @@ part 'src/class/isolate_encodable_write.dart';
 part 'src/class/isolate_encodable.dart';
 part 'src/core/commands/commands_base.dart';
 part 'src/core/enum.dart';
+part 'src/core/exceptions.dart';
 part 'src/db_core_functions.dart';
 part 'src/db_wrapper_auto_disposable.dart';
 part 'src/db_wrapper_interface.dart';

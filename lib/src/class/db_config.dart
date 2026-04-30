@@ -64,4 +64,9 @@ class DBConfig {
   int get hashCode {
     return encryptionKey.hashCode ^ customTypes.hashCode ^ createIfNotExist.hashCode ^ autoDisposeTimerDuration.hashCode;
   }
+
+  @override
+  String toString() {
+    return 'DBConfig(encryptionKey: $encryptionKey, customTypes: $customTypes, createIfNotExist: $createIfNotExist, autoDisposeTimerDuration: $autoDisposeTimerDuration)';
+  }
 }
