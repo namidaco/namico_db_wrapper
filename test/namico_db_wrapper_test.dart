@@ -11,7 +11,6 @@ void main() {
   late String dir;
   setUpAll(
     () {
-      NamicoDBWrapper.initialize();
       dir = '${Directory.current.path}${Platform.pathSeparator}db_test';
       Directory(dir).createSync();
     },

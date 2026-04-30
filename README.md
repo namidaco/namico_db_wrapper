@@ -1,12 +1,21 @@
-## Simple and Safe dart key-based wrapper for sqlite3 that facilitates readings/insertions/deletions/etc.
+## Simple, Safe and Fast dart key-based wrapper for sqlite3 that facilitates readings/insertions/deletions/etc.
 
+
+## Setup:
+
+Add this hook section to your app's pubspec.yaml
+
+```yaml
+hooks:
+  user_defines:
+    sqlite3:
+      source: sqlite3mc
+```
 
 ## Basic Usage:
 
 - opening database
 ```dart
-// initialize sql once in your `main()` function (and with each isolate).
-NamicoDBWrapper.initialize();
 
 // `DBWrapper.open()` accepts `directory path & db name`.
 final db = DBWrapper.open(

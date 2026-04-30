@@ -792,6 +792,7 @@ extension DatabaseUtils on Database {
     final encryptionKey = config.encryptionKey;
     if (encryptionKey != null) {
       try {
+        sql.execute("PRAGMA cipher = 'sqlcipher'; PRAGMA legacy = 4;");
         sql.execute('PRAGMA key = "$encryptionKey";');
       } catch (_) {}
     } else {
@@ -867,8 +868,6 @@ class _DBIsolateManager with PortsProvider<Map> {
 
     final recievePort = ReceivePort();
     sendPort.send(recievePort.sendPort);
-
-    NamicoDBWrapper.initialize();
 
     DBWrapperSync? db = await DBWrapper._tryOpenDB(
       () => DBWrapperSync.openFromInfo(
