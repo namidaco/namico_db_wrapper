@@ -1,3 +1,5 @@
+// ignore_for_file: experimental_member_use
+
 part of '../../../namico_db_wrapper.dart';
 
 final class DBCommandsCustom extends DBCommandsBase {
@@ -15,47 +17,58 @@ final class DBCommandsCustom extends DBCommandsBase {
   }
 
   @override
+  List<String> columnNamesForRow(RawPreparedStatement st, List<String>? cached) => DBCommandsBase.readColumnNames(st, cached);
+
+  @override
   Map<String, dynamic>? parseRow(List<String> columnNames, List<Object?> row) {
+    final length = row.length;
+    if (length == 0) return null;
     final map = <String, dynamic>{};
-    final columns = columnNames;
-    for (int i = 0; i < row.length; i++) {
-      var value = row[i];
-      var columnName = columns[i];
-      map[columnName] = value;
+    for (int i = 0; i < length; i++) {
+      map[columnNames[i]] = row[i];
     }
-    if (map.isEmpty) return null;
     return map;
   }
 
   @override
   DBKeyedResults? parseKeyedRow(List<String> columnNames, List<Object?> row) {
-    final resmap = parseRow(columnNames, row);
-    if (resmap == null) return null;
-    final key = resmap['key'] as String?;
-    if (key == null) return null;
+    final map = parseRow(columnNames, row);
+    final key = map?['key'];
+    if (key is! String) return null;
     return DBKeyedResults(
       key: key,
-      map: resmap,
+      map: map,
     );
   }
 
   @override
-  List<dynamic> objectToWriteParameters(String key, Map<String, dynamic>? object) {
-    final params = <dynamic>[key];
-    if (object == null) return params;
+  bool get isWriteStatementStatic => false;
 
-    for (int i = 0; i < customTypes.length; i++) {
-      final item = customTypes[i];
-      final value = object[item.name];
-      if (value != null) params.add(value);
+  /// Null values are skipped, so their columns are left untouched.
+  @override
+  List<String>? writeColumnsOf(Map<String, dynamic>? object) {
+    if (object == null || object.isEmpty) return null;
+    final columns = <String>[];
+    for (final entry in object.entries) {
+      if (entry.value != null) columns.add(entry.key);
     }
+    return columns.isEmpty ? null : columns;
+  }
 
+  @override
+  List<dynamic> objectToWriteParameters(String key, Map<String, dynamic>? object, List<String>? writeColumns) {
+    if (writeColumns == null || object == null) return [key];
+    final params = List<dynamic>.filled(writeColumns.length + 1, null);
+    params[0] = key;
+    for (int i = 0; i < writeColumns.length; i++) {
+      params[i + 1] = object[writeColumns[i]];
+    }
     return params;
   }
 
   @override
   String selectKeyCommand(String tableName) {
-    return 'SELECT * FROM $tableName WHERE key IN (?)';
+    return 'SELECT * FROM $tableName WHERE key = ?';
   }
 
   @override
@@ -79,21 +92,18 @@ CREATE TABLE IF NOT EXISTS $tableName (
   @override
   void alterIfRequired(String tableName, Database sql) {
     final columns = sql.select('PRAGMA table_info($tableName)');
-    final columnNameGetIndex = columns.columnNames.indexWhere((element) => element == 'name');
+    final columnNameGetIndex = columns.columnNames.indexOf('name');
     final alreadyExistingColumns = columns.rows.map((e) => e[columnNameGetIndex] as String).toSet();
     for (int i = 0; i < customTypes.length; i++) {
-      var item = customTypes[i];
-      final requiredColumnName = item.name;
-      if (!alreadyExistingColumns.contains(requiredColumnName)) {
-        final nullableText = item.nullable ? '' : ' NOT NULL';
-        final defaultValueText = item.defaultValue == null ? '' : ' DEFAULT `${item.defaultValue}`';
-        sql.execute('ALTER TABLE $tableName ADD COLUMN $requiredColumnName ${item.type.dbText}$nullableText$defaultValueText');
+      final item = customTypes[i];
+      if (!alreadyExistingColumns.contains(item.name)) {
+        sql.execute('ALTER TABLE $tableName ADD COLUMN ${_typeToSQLText(item, trailingComma: false)}');
       }
     }
   }
 
-  String _typeToSQLText(DBColumnType type) {
-    var buffer = StringBuffer();
+  String _typeToSQLText(DBColumnType type, {bool trailingComma = true}) {
+    final buffer = StringBuffer();
     buffer.write(type.name);
     buffer.write(' ');
     buffer.write(type.type.dbText);
@@ -101,39 +111,39 @@ CREATE TABLE IF NOT EXISTS $tableName (
       buffer.write(' NOT NULL');
     }
     if (type.defaultValue != null) {
-      buffer.write(' DEFAULT `${type.defaultValue}`');
+      buffer.write(' DEFAULT ');
+      buffer.write(DBCommandsBase.sqlLiteral(type.defaultValue));
     }
-    buffer.write(',');
+    if (trailingComma) buffer.write(',');
     return buffer.toString();
   }
 
   @override
-  String writeCommand(String tableName, Iterable<String>? keys) {
-    if (keys == null) {
-      // insert key only if no column keys provided
+  String writeCommand(String tableName, List<String>? writeColumns) {
+    if (writeColumns == null) {
       return '''
 INSERT INTO $tableName (key)
 VALUES (?)
+ON CONFLICT (key) DO NOTHING
   ''';
     }
 
     final columnsNamesBuffer = StringBuffer();
     final columnsParamsBuffer = StringBuffer();
     final conflictsBuffer = StringBuffer();
-    bool isFirst = true;
-    for (final name in keys) {
+    for (int i = 0; i < writeColumns.length; i++) {
+      final name = writeColumns[i];
       columnsNamesBuffer.write(', $name');
       columnsParamsBuffer.write(', ?');
-      if (!isFirst) conflictsBuffer.write(', ');
+      if (i > 0) conflictsBuffer.write(', ');
       conflictsBuffer.write('$name=EXCLUDED.$name');
-      isFirst = false;
     }
 
     return '''
-INSERT INTO $tableName (key${columnsNamesBuffer.toString()})
-VALUES (?${columnsParamsBuffer.toString()})
+INSERT INTO $tableName (key$columnsNamesBuffer)
+VALUES (?$columnsParamsBuffer)
 ON CONFLICT (key) DO UPDATE
-SET ${conflictsBuffer.toString()}
+SET $conflictsBuffer
   ''';
   }
 }

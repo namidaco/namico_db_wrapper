@@ -5,7 +5,7 @@ class _IsolateEncodableContainsKey extends _IsolateEncodable {
   const _IsolateEncodableContainsKey(this.key);
 
   @override
-  void execute(DBWrapperSync db) => db.containsKey(key);
+  bool execute(DBWrapperSync db) => db.containsKey(key);
 }
 
 class _IsolateEncodableReadKey extends _IsolateEncodable {

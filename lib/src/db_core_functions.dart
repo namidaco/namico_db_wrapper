@@ -7,7 +7,7 @@ class DBCoreFunctions {
     try {
       return callback(db);
     } finally {
-      db.dispose();
+      db.close();
     }
   }
 
@@ -17,7 +17,7 @@ class DBCoreFunctions {
     try {
       return await callback(db);
     } finally {
-      db.dispose();
+      db.close();
     }
   }
 }

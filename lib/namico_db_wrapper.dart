@@ -35,6 +35,7 @@ typedef CacheWriteItemToEntryCallback<E> = MapEntry<String, Map<String, dynamic>
 typedef LoadEverythingCallback = void Function(Map<String, dynamic> value);
 typedef LoadEverythingKeyedCallback = void Function(String key, Map<String, dynamic> value);
 typedef LoadAllKeysCallback = void Function(String key);
+typedef LoadEverythingExtractedCallback = void Function(String key, List<Object?> values);
 
 class NamicoDBWrapper {
   static Future<void> dispose() async {

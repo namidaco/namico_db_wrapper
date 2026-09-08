@@ -22,6 +22,7 @@ mixin PortsProvider<E> {
   bool get isInitialized => _isInitialized ?? false;
 
   Completer<SendPort>? _portCompleter;
+  SendPort? _sendPort;
   ReceivePort? _recievePort;
   StreamSubscription? _streamSub;
   Isolate? _isolate;
@@ -30,7 +31,8 @@ mixin PortsProvider<E> {
   Completer<void>? _initializingCompleter;
 
   Future<void> sendPort(Object? message) async {
-    (await _portCompleter?.future)?.send(message);
+    final sendPort = _sendPort ?? await _portCompleter?.future;
+    sendPort?.send(message);
   }
 
   static bool isDisposeMessage(dynamic message) => message == PortsProviderMessages.disposed;
@@ -45,6 +47,7 @@ mixin PortsProvider<E> {
     onPreparing(false);
     if (resetCompleter) _initializingCompleter = null;
     _portCompleter = null;
+    _sendPort = null;
     _recievePort = null;
     _streamSub = null;
     _isolate = null;
@@ -63,7 +66,10 @@ mixin PortsProvider<E> {
     _recievePort = ReceivePort();
     _streamSub = _recievePort?.listen((result) {
       if (result is SendPort) {
-        if (portCompleter.isCompleted == false) portCompleter.complete(result);
+        if (portCompleter.isCompleted == false) {
+          _sendPort = result;
+          portCompleter.complete(result);
+        }
       } else {
         onResult(result);
       }
@@ -98,7 +104,7 @@ mixin PortsProvider<E> {
       },
       isolateFunction: (itemsSendPort) async {
         final isolateFn = isolateFunction(itemsSendPort);
-        _isolate = await Isolate.spawn(isolateFn.entryPoint, isolateFn.message);
+        _isolate = await Isolate.spawn(isolateFn.entryPoint, isolateFn.message, debugName: '$runtimeType');
       },
     );
     await _initializingCompleter?.future;

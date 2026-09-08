@@ -21,13 +21,10 @@ class DbWrapperFileInfo {
   }) : dbTableName = '`$dbName`';
 
   factory DbWrapperFileInfo({required String directory, required String dbName, String? encryptionKey}) {
-    if (!directory.endsWith(Platform.pathSeparator)) directory += Platform.pathSeparator;
+    directory = _normalizeDirectory(directory);
     final extension = encryptionKey != null ? '' : '.db';
     final actualFilename = '$dbName$extension';
-    final path = "$directory$actualFilename";
-    final dbFile = File(path);
-    final uri = Uri.file(dbFile.path);
-    final dbOpenUriFinal = "$uri?cache=shared";
+    final dbFile = File("$directory$actualFilename");
 
     return DbWrapperFileInfo._(
       directory: directory,
@@ -35,27 +32,27 @@ class DbWrapperFileInfo {
       filenameActual: actualFilename,
       extension: extension,
       file: dbFile,
-      dbOpenUriFinal: dbOpenUriFinal,
+      dbOpenUriFinal: _buildOpenUri(dbFile),
     );
   }
+
   factory DbWrapperFileInfo.fromFile({required File dbFile, String? encryptionKey}) {
     final path = dbFile.path;
-    final directory = p.dirname(path);
-    final actualFilename = p.basename(path);
-    final dbName = p.basenameWithoutExtension(path);
-    final extension = p.extension(path);
-    final uri = Uri.file(dbFile.path);
-    final dbOpenUriFinal = "$uri?cache=shared";
-
     return DbWrapperFileInfo._(
-      directory: directory,
-      dbName: dbName,
-      filenameActual: actualFilename,
-      extension: extension,
+      directory: _normalizeDirectory(p.dirname(path)),
+      dbName: p.basenameWithoutExtension(path),
+      filenameActual: p.basename(path),
+      extension: p.extension(path),
       file: dbFile,
-      dbOpenUriFinal: dbOpenUriFinal,
+      dbOpenUriFinal: _buildOpenUri(dbFile),
     );
   }
+
+  static String _normalizeDirectory(String directory) {
+    return directory.endsWith(Platform.pathSeparator) ? directory : '$directory${Platform.pathSeparator}';
+  }
+
+  static String _buildOpenUri(File file) => Uri.file(file.path).toString();
 
   @override
   String toString() {
@@ -65,18 +62,9 @@ class DbWrapperFileInfo {
   @override
   bool operator ==(covariant DbWrapperFileInfo other) {
     if (identical(this, other)) return true;
-
-    return other.file.path == file.path &&
-        other.directory == directory &&
-        other.dbName == dbName &&
-        other.filenameActual == filenameActual &&
-        other.extension == extension &&
-        other.dbTableName == dbTableName &&
-        other.dbOpenUriFinal == dbOpenUriFinal;
+    return other.file.path == file.path && other.dbTableName == dbTableName && other.dbOpenUriFinal == dbOpenUriFinal;
   }
 
   @override
-  int get hashCode {
-    return file.path.hashCode ^ directory.hashCode ^ dbName.hashCode ^ filenameActual.hashCode ^ extension.hashCode ^ dbTableName.hashCode ^ dbOpenUriFinal.hashCode;
-  }
+  int get hashCode => Object.hash(file.path, dbTableName, dbOpenUriFinal);
 }

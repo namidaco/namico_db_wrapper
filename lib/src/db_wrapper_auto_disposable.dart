@@ -82,6 +82,12 @@ class _DBWrapperSyncAutoDisposable extends DBWrapperSync with _DBDisposeTimerMan
   }
 
   @override
+  void loadEverythingExtracted(List<String> jsonPaths, LoadEverythingExtractedCallback onValue) {
+    _rescheduleDisposeTimer();
+    return super.loadEverythingExtracted(jsonPaths, onValue);
+  }
+
+  @override
   void loadAllKeys(LoadAllKeysCallback onValue) {
     _rescheduleDisposeTimer();
     return super.loadAllKeys(onValue);
@@ -103,6 +109,12 @@ class _DBWrapperSyncAutoDisposable extends DBWrapperSync with _DBDisposeTimerMan
   void putAll<E>(DBWriteList writeList) {
     _rescheduleDisposeTimer();
     super.putAll(writeList);
+  }
+
+  @override
+  T transaction<T>(T Function() action) {
+    _rescheduleDisposeTimer();
+    return super.transaction(action);
   }
 
   // ===== Methods that don't affect the timer
@@ -139,27 +151,10 @@ class _DBWrapperSyncAutoDisposable extends DBWrapperSync with _DBDisposeTimerMan
 
 mixin _DBDisposeTimerManager {
   Timer? _disposeTimer;
-  // int _currentOperations = 0;
 
   Timer _createNewTimer();
   void _ensureDbOpen();
 
-  /// use on async method start
-  // void _onOperationStart() {
-  //   _ensureDbOpen();
-  //   _currentOperations++;
-  //   _cancelTimer();
-  // }
-
-  /// use on async method end
-  // void _onOperationEnd() {
-  //   _currentOperations--;
-  //   if (_currentOperations == 0) {
-  //     _rescheduleDisposeTimer();
-  //   }
-  // }
-
-  /// use on sync method calls
   void _rescheduleDisposeTimer() {
     _ensureDbOpen();
     _disposeTimer?.cancel();

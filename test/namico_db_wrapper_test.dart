@@ -170,6 +170,85 @@ void main() {
       expect(res['is_cool'], 1);
       expect(res['is_cool2'], 0);
     });
+
+    test('write with unordered keys & null values', () {
+      final customTypes = [
+        DBColumnType(type: DBColumnTypeEnum.string, name: 'username', nullable: false, defaultValue: ''),
+        DBColumnType(type: DBColumnTypeEnum.string, name: 'nickname', nullable: true),
+        DBColumnType(type: DBColumnTypeEnum.int, name: 'age', nullable: true),
+      ];
+      final dbwrapper = DBWrapper.openSync(
+        dir,
+        'custom_db_unordered',
+        config: DBConfig(customTypes: customTypes, createIfNotExist: true, autoDisposeTimerDuration: null),
+      );
+      dbwrapper.delete('u1');
+      dbwrapper.put('u1', {'age': 20, 'nickname': null, 'username': 'first'});
+      var res = dbwrapper.get('u1')!;
+      expect(res['username'], 'first');
+      expect(res['age'], 20);
+      expect(res['nickname'], isNull);
+
+      dbwrapper.put('u1', {'nickname': 'nick'});
+      res = dbwrapper.get('u1')!;
+      expect(res['username'], 'first');
+      expect(res['nickname'], 'nick');
+
+      expect(dbwrapper.containsKey('u1'), isTrue);
+      expect(dbwrapper.containsKey('u2'), isFalse);
+      dbwrapper.close();
+    });
+
+    test('key only writes', () {
+      final customTypes = [
+        DBColumnType(type: DBColumnTypeEnum.string, name: 'nickname', nullable: true),
+        DBColumnType(type: DBColumnTypeEnum.string, name: 'title', nullable: false, defaultValue: "it's"),
+      ];
+      final dbwrapper = DBWrapper.openSync(
+        dir,
+        'custom_db_keyonly',
+        config: DBConfig(customTypes: customTypes, createIfNotExist: true, autoDisposeTimerDuration: null),
+      );
+      dbwrapper.put('u1', {'nickname': 'nick'});
+      dbwrapper.put('u1', null);
+      dbwrapper.put('u1', {});
+      dbwrapper.put('u2', {'nickname': null});
+      final res = dbwrapper.get('u1')!;
+      expect(res['nickname'], 'nick');
+      expect(res['title'], "it's");
+      expect(dbwrapper.containsKey('u2'), isTrue);
+      expect(dbwrapper.get('u2')!['nickname'], isNull);
+      dbwrapper.close();
+    });
+
+    test('same config returns same instance', () {
+      DBConfig buildConfig() => DBConfig(
+            customTypes: [DBColumnType(type: DBColumnTypeEnum.string, name: 'username', nullable: true)],
+            createIfNotExist: true,
+          );
+      final db1 = DBWrapper.openSync(dir, 'custom_db_same', config: buildConfig());
+      final db2 = DBWrapper.openSync(dir, 'custom_db_same', config: buildConfig());
+      expect(identical(db1, db2), isTrue);
+      db1.close();
+    });
+  });
+  group('Bulk tests', () {
+    test('getAll/deleteBulk above parameters limit', () {
+      final dbwrapper = DBWrapper.openSync(dir, 'bulk_db', config: DBConfig(createIfNotExist: true, autoDisposeTimerDuration: null));
+      const count = 2500;
+      final items = List.generate(count, (i) => MapEntry('k$i', {'i': i}));
+      dbwrapper.putAll(DBWriteList(items));
+      final keys = items.map((e) => e.key).toList();
+      expect(dbwrapper.getAll(keys).length, count);
+      expect(dbwrapper.loadAllKeysResult().length, count);
+      dbwrapper.deleteBulk(keys.sublist(0, 2001));
+      expect(dbwrapper.getAll(keys).length, count - 2001);
+      dbwrapper.delete('k2400');
+      expect(dbwrapper.containsKey('k2400'), isFalse);
+      dbwrapper.deleteEverything();
+      expect(dbwrapper.loadAllKeysResult(), isEmpty);
+      dbwrapper.close();
+    });
   });
   group(
     'Benchmark tests',

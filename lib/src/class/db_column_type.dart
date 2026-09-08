@@ -23,4 +23,13 @@ class DBColumnType {
     required this.nullable,
     this.defaultValue,
   });
+
+  @override
+  bool operator ==(covariant DBColumnType other) {
+    if (identical(this, other)) return true;
+    return other.type == type && other.name == name && other.nullable == nullable && other.defaultValue == defaultValue;
+  }
+
+  @override
+  int get hashCode => Object.hash(type, name, nullable, defaultValue);
 }

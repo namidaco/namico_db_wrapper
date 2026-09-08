@@ -5,26 +5,14 @@ class DBWriteList {
   const DBWriteList(this.items);
 
   static DBWriteList fromList<E>(List<E> items, CacheWriteItemToEntryCallback<E> itemToEntry) {
-    final entries = <MapEntry<String, Map<String, dynamic>?>>[];
-    final keys = <String>{};
-    for (int i = 0; i < items.length; i++) {
-      final e = items[i];
-      final entry = itemToEntry(e);
-      entries.add(entry);
-      final subkeys = entry.value?.keys;
-      if (subkeys != null) keys.addAll(subkeys);
-    }
+    final entries = List<MapEntry<String, Map<String, dynamic>?>>.generate(items.length, (i) => itemToEntry(items[i]), growable: false);
     return DBWriteList(entries);
   }
 
   static DBWriteList fromIterable<E>(Iterable<E> items, CacheWriteItemToEntryCallback<E> itemToEntry) {
     final entries = <MapEntry<String, Map<String, dynamic>?>>[];
-    final keys = <String>{};
     for (final e in items) {
-      final entry = itemToEntry(e);
-      entries.add(entry);
-      final subkeys = entry.value?.keys;
-      if (subkeys != null) keys.addAll(subkeys);
+      entries.add(itemToEntry(e));
     }
     return DBWriteList(entries);
   }

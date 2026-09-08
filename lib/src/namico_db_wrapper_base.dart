@@ -1,5 +1,5 @@
 // ignore_for_file: public_member_api_docs, sort_constructors_first
-// ignore_for_file: unnecessary_this
+// ignore_for_file: unnecessary_this, experimental_member_use
 
 part of '../namico_db_wrapper.dart';
 
@@ -69,7 +69,7 @@ class DBWrapper extends DBWrapperAsync {
     required DbWrapperFileInfo fileInfo,
     DBConfig config = const DBConfig(),
   }) {
-    return DBWrapperAsync._openFromInfo(
+    return DBWrapperAsync.openFromInfo(
       fileInfo: fileInfo,
       config: config,
     );
@@ -101,7 +101,7 @@ class DBWrapper extends DBWrapperAsync {
       dbFile: file,
       encryptionKey: config.encryptionKey,
     );
-    return DBWrapperSync._openFromInfo(
+    return DBWrapperSync.openFromInfo(
       fileInfo: fileInfo,
       config: config,
     );
@@ -112,7 +112,7 @@ class DBWrapper extends DBWrapperAsync {
     required DbWrapperFileInfo fileInfo,
     DBConfig config = const DBConfig(),
   }) {
-    return DBWrapperSync._openFromInfo(
+    return DBWrapperSync.openFromInfo(
       fileInfo: fileInfo,
       config: config,
     );
@@ -141,7 +141,7 @@ class DBWrapper extends DBWrapperAsync {
     required DbWrapperFileInfo fileInfo,
     DBConfig config = const DBConfig(),
   }) {
-    final sync = DBWrapperSync._openFromInfo(
+    final sync = DBWrapperSync.openFromInfo(
       fileInfo: fileInfo,
       config: config,
     );
@@ -213,7 +213,7 @@ class DBWrapper extends DBWrapperAsync {
     DBConfig config = const DBConfig(),
   }) async {
     final sync = await DBWrapper._tryOpenDB(
-      () => DBWrapperSync._openFromInfo(
+      () => DBWrapperSync.openFromInfo(
         fileInfo: fileInfo,
         config: config,
       ),
@@ -236,12 +236,13 @@ class DBWrapper extends DBWrapperAsync {
       } on SqliteException catch (sqlException) {
         bool checkCode(int code) => sqlException.resultCode == code || sqlException.extendedResultCode == code;
         bool checkMessage(String containsText) => sqlException.message.contains(containsText) || (sqlException.explanation?.contains(containsText) == true);
-        if (checkCode(261) || checkCode(5) || checkMessage('database is locked')) {
-          await Future.delayed(Duration(milliseconds: 200));
-        }
-      } finally {
         attemptsCount++;
+        final isLocked = checkCode(261) || checkCode(5) || checkCode(6) || checkMessage('database is locked') || checkMessage('database table is locked');
+        if (!isLocked || attemptsCount > maxAttempts) break;
+        await Future.delayed(const Duration(milliseconds: 200));
+        continue;
       }
+      attemptsCount++;
       if (attemptsCount > maxAttempts) break;
     }
 
@@ -325,18 +326,19 @@ class DBWrapperSync with DBWrapperInterfaceSync {
     required DBConfig config,
     bool createTable = true,
   }) {
-    if (_isOpen) close(); // -- unpossible scemario but warever
+    if (_isOpen) close();
 
     _isOpen = true;
     try {
       final dbFile = fileInfo.file;
       if (config.createIfNotExist && !dbFile.existsSync()) dbFile.createSync(recursive: true);
-      sql = sqlite3.open(fileInfo.dbOpenUriFinal, uri: true);
-      sql!.prepareDatabase(config: config);
-      _commandsManager = _DBCommandsManager(sql!, fileInfo.dbTableName, _commands);
+      final sql = this.sql = sqlite3.open(fileInfo.dbOpenUriFinal, uri: true);
+      sql.prepareDatabase(config: config);
+      _commandsManager = _DBCommandsManager(sql, fileInfo.dbTableName, _commands);
       if (createTable) _commandsManager.createTable();
       _readSt = _commandsManager.buildReadKeyStatement();
-      if (_commands is DBCommands) _writeStDefault = _commandsManager.buildWriteStatement(null);
+      if (_commands.isWriteStatementStatic) _writeStDefault = _commandsManager.buildWriteStatement(null);
+      _openedDBSync.putIfAbsent(_DBKey(fileInfo: this.fileInfo, config: this.config), () => this);
       return this;
     } catch (_) {
       close();
@@ -347,6 +349,11 @@ class DBWrapperSync with DBWrapperInterfaceSync {
   PreparedStatement? _writeStDefault;
   PreparedStatement? _readSt;
   PreparedStatement? _existSt;
+  PreparedStatement? _deleteSt;
+  List<String>? _readStColumnNames;
+
+  /// Write statements for [DBCommandsCustom], keyed by the written columns.
+  final _writeStCache = <String, PreparedStatement>{};
 
   @override
   bool get isOpen => _isOpen;
@@ -356,16 +363,23 @@ class DBWrapperSync with DBWrapperInterfaceSync {
   void close() {
     _isOpen = false;
     final dbKey = _DBKey(fileInfo: fileInfo, config: config);
-    _openedDBSync.remove(dbKey);
+    if (identical(_openedDBSync[dbKey], this)) _openedDBSync.remove(dbKey);
 
-    _readSt?.dispose();
-    _writeStDefault?.dispose();
-    _existSt?.dispose();
-    sql?.dispose();
+    _readSt?.close();
+    _writeStDefault?.close();
+    _existSt?.close();
+    _deleteSt?.close();
+    for (final st in _writeStCache.values) {
+      st.close();
+    }
+    _writeStCache.clear();
+    sql?.close();
 
     _readSt = null;
+    _readStColumnNames = null;
     _writeStDefault = null;
     _existSt = null;
+    _deleteSt = null;
     sql = null;
 
     onClose?.call();
@@ -393,6 +407,24 @@ class DBWrapperSync with DBWrapperInterfaceSync {
     sql!.execute(_commands.checkpointCommand());
   }
 
+  /// Runs [action] inside a single transaction, rolling back on error.
+  ///
+  /// Batching writes this way avoids one implicit transaction (and wal frame flush) per statement.
+  T transaction<T>(T Function() action) {
+    final sql = this.sql!;
+    sql.execute('BEGIN IMMEDIATE');
+    try {
+      final result = action();
+      sql.execute('COMMIT');
+      return result;
+    } catch (_) {
+      try {
+        sql.execute('ROLLBACK');
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
   @override
   List<Map<String, dynamic>> loadEverythingResult() {
     final values = <Map<String, dynamic>>[];
@@ -401,15 +433,32 @@ class DBWrapperSync with DBWrapperInterfaceSync {
   }
 
   void loadEverything(LoadEverythingCallback onValue) {
-    final command = _commands.loadEverythingCommand(fileInfo.dbTableName);
-    final res = sql!.select(command);
-    final columnNames = res.columnNames;
-
-    final int length = res.rows.length;
-    for (int i = 0; i < length; i++) {
-      final parsed = _commands.parseRow(columnNames, res.rows[i]);
+    final st = _commandsManager.buildLoadEverythingStatement();
+    final (columnNames, rows) = _readAllRows(st, null);
+    for (int i = 0; i < rows.length; i++) {
+      final parsed = _commands.parseRow(columnNames, rows[i]);
       if (parsed != null) onValue(parsed);
     }
+  }
+
+  /// Reads all rows of [st] then closes it. Rows are materialized first & parsed after,
+  /// which is measurably faster than interleaving ffi reads with parsing.
+  (List<String>, List<List<Object?>>) _readAllRows(PreparedStatement st, List<String>? cachedColumnNames) {
+    final rows = <List<Object?>>[];
+    List<String> columnNames = const [];
+    try {
+      final raw = st.raw;
+      if (raw.step()) {
+        columnNames = _commands.columnNamesForRow(raw, cachedColumnNames);
+        final columnCount = raw.columnCount;
+        do {
+          rows.add(DBCommandsBase.readRawRow(raw, columnCount));
+        } while (raw.step());
+      }
+    } finally {
+      st.close();
+    }
+    return (columnNames, rows);
   }
 
   @override
@@ -420,18 +469,13 @@ class DBWrapperSync with DBWrapperInterfaceSync {
   }
 
   void loadEverythingKeyed(LoadEverythingKeyedCallback onValue) {
-    final command = _commands.loadEverythingKeyedCommand(fileInfo.dbTableName);
-    final res = sql!.select(command);
-    final columnNames = res.columnNames;
-    final int length = res.rows.length;
-    for (int i = 0; i < length; i++) {
-      try {
-        final parsedKeyed = _commands.parseKeyedRow(columnNames, res.rows[i]);
-        if (parsedKeyed != null) {
-          final parsed = parsedKeyed.map;
-          if (parsed != null) onValue(parsedKeyed.key, parsed);
-        }
-      } catch (_) {}
+    final st = _commandsManager.buildLoadEverythingKeyedStatement();
+    final (columnNames, rows) = _readAllRows(st, null);
+    for (int i = 0; i < rows.length; i++) {
+      final parsedKeyed = _commands.parseKeyedRow(columnNames, rows[i]);
+      if (parsedKeyed == null) continue;
+      final parsed = parsedKeyed.map;
+      if (parsed != null) onValue(parsedKeyed.key, parsed);
     }
   }
 
@@ -442,109 +486,199 @@ class DBWrapperSync with DBWrapperInterfaceSync {
     return values;
   }
 
-  void loadAllKeys(LoadAllKeysCallback onValue) {
-    final command = _commands.selectAllKeysCommand(fileInfo.dbTableName);
-    final res = sql!.select(command);
-    final int length = res.rows.length;
-    for (int i = 0; i < length; i++) {
-      try {
-        final row = res.rows[i];
-        final parsedKey = _commands.parseKeyFromRow(row);
-        if (parsedKey != null) {
-          onValue(parsedKey);
+  /// Reads only `key` + the json fields at [jsonPaths] (e.g. `$.title`) of every row,
+  /// extracted by sqlite without decoding the whole value. Values are raw sqlite values (String/int/double/null).
+  void loadEverythingExtracted(List<String> jsonPaths, LoadEverythingExtractedCallback onValue) {
+    final st = _commandsManager.buildLoadEverythingExtractedStatement(jsonPaths);
+    try {
+      final raw = st.raw;
+      final pathsCount = jsonPaths.length;
+      while (raw.step()) {
+        if (raw.columnType(0) != SqlType.SQLITE_TEXT) continue;
+        final key = raw.columnText(0);
+        final values = List<Object?>.filled(pathsCount, null);
+        for (int i = 0; i < pathsCount; i++) {
+          values[i] = DBCommandsBase.readColumnValue(raw, i + 1);
         }
-      } catch (_) {}
+        onValue(key, values);
+      }
+    } finally {
+      st.close();
+    }
+  }
+
+  void loadAllKeys(LoadAllKeysCallback onValue) {
+    final st = _commandsManager.buildSelectAllKeysStatement();
+    try {
+      final raw = st.raw;
+      while (raw.step()) {
+        if (raw.columnType(0) == SqlType.SQLITE_TEXT) onValue(raw.columnText(0));
+      }
+    } finally {
+      st.close();
     }
   }
 
   @override
   bool containsKey(String key) {
-    _existSt ??= _commandsManager.buildExistStatement();
-    return _existSt?.select([key]).isNotEmpty == true;
+    final st = _existSt ??= _commandsManager.buildExistStatement();
+    final raw = st.raw;
+    st.reset();
+    raw.bindText(1, key);
+    try {
+      return raw.step();
+    } finally {
+      st.reset();
+    }
   }
 
   @override
   Map<String, dynamic>? get(String key) {
-    final res = _readSt!.select([key]);
-    final row = res.rows.firstOrNull;
-    if (row == null) return null;
-    final columnNames = res.columnNames;
+    final st = _readSt!;
+    final raw = st.raw;
+    st.reset();
+    raw.bindText(1, key);
     try {
-      return _commands.parseRow(columnNames, row);
-    } catch (_) {
-      return null;
+      if (!raw.step()) return null;
+      final columnNames = _readStColumnNames = _commands.columnNamesForRow(raw, _readStColumnNames);
+      return _commands.parseRow(columnNames, DBCommandsBase.readRawRow(raw, raw.columnCount));
+    } finally {
+      st.reset();
     }
   }
 
   @override
   List<Map<String, dynamic>> getAll(List<String> keys) {
-    final command = _commandsManager.buildReadKeysAllStatement(keys.length);
-    try {
-      final res = command.select(keys);
-      final values = <Map<String, dynamic>>[];
-      final columnNames = res.columnNames;
+    final values = <Map<String, dynamic>>[];
+    if (keys.isEmpty) return values;
 
-      final rows = res.rows;
-      for (int i = 0; i < rows.length; i++) {
-        final row = rows[i];
-        final parsed = _commands.parseRow(columnNames, row);
-        if (parsed != null) values.add(parsed);
+    const chunkSize = DBCommandsBase.maxParametersPerStatement;
+    final fullChunks = keys.length ~/ chunkSize;
+    final remainder = keys.length % chunkSize;
+
+    if (fullChunks > 0) {
+      final st = _commandsManager.buildReadKeysAllStatement(chunkSize);
+      try {
+        for (int c = 0; c < fullChunks; c++) {
+          _readAllInto(st, keys, c * chunkSize, chunkSize, values);
+        }
+      } finally {
+        st.close();
       }
+    }
+    if (remainder > 0) {
+      final st = _commandsManager.buildReadKeysAllStatement(remainder);
+      try {
+        _readAllInto(st, keys, fullChunks * chunkSize, remainder, values);
+      } finally {
+        st.close();
+      }
+    }
+    return values;
+  }
 
-      return values;
-    } finally {
-      command.dispose();
+  void _readAllInto(PreparedStatement st, List<String> keys, int start, int count, List<Map<String, dynamic>> values) {
+    final raw = st.raw;
+    st.reset();
+    for (int i = 0; i < count; i++) {
+      raw.bindText(i + 1, keys[start + i]);
+    }
+    if (!raw.step()) return;
+    final columnNames = _readStColumnNames = _commands.columnNamesForRow(raw, _readStColumnNames);
+    final columnCount = raw.columnCount;
+    final rows = <List<Object?>>[];
+    do {
+      rows.add(DBCommandsBase.readRawRow(raw, columnCount));
+    } while (raw.step());
+    for (int i = 0; i < rows.length; i++) {
+      final parsed = _commands.parseRow(columnNames, rows[i]);
+      if (parsed != null) values.add(parsed);
     }
   }
 
   @override
-  void put(String key, Map<String, dynamic>? object) {
-    final params = _commands.objectToWriteParameters(key, object);
-    if (_writeStDefault != null) {
-      _writeStDefault!.execute(params);
-    } else {
-      // `DBCommandsCustom` needs to create it each time, cuz the parameters passed by [object] could not be the same as the default parameters.
-      final statement = _commandsManager.buildWriteStatement(object?.keys);
-      statement.execute(params);
-      statement.dispose();
+  void put(String key, Map<String, dynamic>? object) => _put(key, object);
+
+  void _put(String key, Map<String, dynamic>? object) {
+    final writeStDefault = _writeStDefault;
+    if (writeStDefault != null) {
+      writeStDefault.execute(_commands.objectToWriteParameters(key, object, null));
+      return;
     }
+    // `DBCommandsCustom` statement depends on which columns [object] has.
+    final writeColumns = _commands.writeColumnsOf(object);
+    final cacheKey = writeColumns == null ? '' : writeColumns.join(',');
+    final st = _writeStCache[cacheKey] ??= _commandsManager.buildWriteStatement(writeColumns);
+    st.execute(_commands.objectToWriteParameters(key, object, writeColumns));
   }
 
   void putAll<E>(DBWriteList writeList) {
     final items = writeList.items;
     if (items.isEmpty) return;
-    for (int i = 0; i < items.length; i++) {
-      final item = items[i];
-      put(item.key, item.value);
+    if (items.length == 1) {
+      final item = items[0];
+      _put(item.key, item.value);
+      return;
     }
+    transaction(() {
+      for (int i = 0; i < items.length; i++) {
+        final item = items[i];
+        _put(item.key, item.value);
+      }
+    });
   }
 
   @override
   void delete(String key) {
-    return deleteBulk([key]);
+    final st = _deleteSt ??= _commandsManager.buildDeleteStatement(1, persistent: true);
+    st.execute([key]);
   }
 
   @override
   void deleteBulk(List<String> keys) {
     if (keys.isEmpty) return;
-    final st = _commandsManager.buildDeleteStatement(keys);
-    try {
-      return st.execute(keys);
-    } finally {
-      st.dispose();
+    const chunkSize = DBCommandsBase.maxParametersPerStatement;
+    if (keys.length == 1) return delete(keys[0]);
+    if (keys.length <= chunkSize) {
+      final st = _commandsManager.buildDeleteStatement(keys.length);
+      try {
+        st.execute(keys);
+      } finally {
+        st.close();
+      }
+      return;
     }
+
+    final fullChunks = keys.length ~/ chunkSize;
+    final remainder = keys.length % chunkSize;
+    transaction(() {
+      final st = _commandsManager.buildDeleteStatement(chunkSize);
+      try {
+        for (int c = 0; c < fullChunks; c++) {
+          final start = c * chunkSize;
+          st.execute(keys.sublist(start, start + chunkSize));
+        }
+      } finally {
+        st.close();
+      }
+      if (remainder > 0) {
+        final st = _commandsManager.buildDeleteStatement(remainder);
+        try {
+          st.execute(keys.sublist(fullChunks * chunkSize));
+        } finally {
+          st.close();
+        }
+      }
+    });
   }
 
   @override
   void deleteEverything({bool claimFreeSpaceAndCheckpoint = true}) {
-    final st = _commandsManager.buildDeleteEverythingStatement();
     try {
-      st.execute();
+      sql!.execute(_commands.deleteEverythingCommand(fileInfo.dbTableName));
     } catch (_) {
       _nukeDatabaseFilesAndRecreate();
       return;
-    } finally {
-      st.dispose();
     }
 
     if (claimFreeSpaceAndCheckpoint) this.claimFreeSpaceAndCheckpoint();
@@ -556,7 +690,7 @@ class DBWrapperSync with DBWrapperInterfaceSync {
     } catch (_) {}
 
     final dbPath = fileInfo.file.path;
-    const kDBNamesSuffixes = <String>{'', '-wal', '-shm', '-journal'};
+    const kDBNamesSuffixes = <String>{'', '-wal', '-wal2', '-shm', '-journal'};
     for (final suffix in kDBNamesSuffixes) {
       _deleteWithRetry('$dbPath$suffix');
     }
@@ -755,24 +889,19 @@ class _DBCommandsManager {
     _commands.alterIfRequired(tableName, sql);
   }
 
-  PreparedStatement buildWriteStatement(Iterable<String>? keys) {
-    final command = _commands.writeCommand(tableName, keys);
-    return sql.prepare(command, persistent: false);
+  PreparedStatement buildWriteStatement(List<String>? writeColumns) {
+    final command = _commands.writeCommand(tableName, writeColumns);
+    return sql.prepare(command, persistent: true);
   }
 
-  PreparedStatement buildDeleteStatement(List<String> keys) {
-    final command = _commands.deleteCommand(tableName, keys);
-    return sql.prepare(command, persistent: false);
-  }
-
-  PreparedStatement buildDeleteEverythingStatement() {
-    final command = _commands.deleteEverythingCommand(tableName);
-    return sql.prepare(command, persistent: false);
+  PreparedStatement buildDeleteStatement(int keysCount, {bool persistent = false}) {
+    final command = _commands.deleteCommand(tableName, keysCount);
+    return sql.prepare(command, persistent: persistent);
   }
 
   PreparedStatement buildReadKeyStatement() {
     final command = _commands.selectKeyCommand(tableName);
-    return sql.prepare(command, persistent: false);
+    return sql.prepare(command, persistent: true);
   }
 
   PreparedStatement buildReadKeysAllStatement(int keysCount) {
@@ -782,6 +911,26 @@ class _DBCommandsManager {
 
   PreparedStatement buildExistStatement() {
     final command = _commands.doesKeyExistCommand(tableName);
+    return sql.prepare(command, persistent: true);
+  }
+
+  PreparedStatement buildLoadEverythingStatement() {
+    final command = _commands.loadEverythingCommand(tableName);
+    return sql.prepare(command, persistent: false);
+  }
+
+  PreparedStatement buildLoadEverythingKeyedStatement() {
+    final command = _commands.loadEverythingKeyedCommand(tableName);
+    return sql.prepare(command, persistent: false);
+  }
+
+  PreparedStatement buildSelectAllKeysStatement() {
+    final command = _commands.selectAllKeysCommand(tableName);
+    return sql.prepare(command, persistent: false);
+  }
+
+  PreparedStatement buildLoadEverythingExtractedStatement(List<String> jsonPaths) {
+    final command = _commands.loadEverythingExtractedCommand(tableName, jsonPaths);
     return sql.prepare(command, persistent: false);
   }
 }
@@ -793,14 +942,15 @@ extension DatabaseUtils on Database {
     if (encryptionKey != null) {
       try {
         sql.execute("PRAGMA cipher = 'sqlcipher'; PRAGMA legacy = 4;");
-        sql.execute('PRAGMA key = "$encryptionKey";');
+        sql.execute('PRAGMA key = ${DBCommandsBase.sqlLiteral(encryptionKey)};');
       } catch (_) {}
     } else {
-      sql.execute("PRAGMA cipher_memory_security = OFF; PRAGMA cipher_use_hmac = OFF; PRAGMA cipher_page_size = 8192; PRAGMA kdf_iter = 8;");
+      try {
+        sql.execute("PRAGMA cipher_memory_security = OFF; PRAGMA cipher_use_hmac = OFF; PRAGMA cipher_page_size = 8192; PRAGMA kdf_iter = 8;");
+      } catch (_) {}
     }
 
     // -- wal2 doesn't always work (like on windows)
-    String journalModeCommand = '';
     const preferredJournalMode = 'wal2';
     const fallbackJournalMode = 'wal';
 
@@ -810,11 +960,9 @@ extension DatabaseUtils on Database {
       journalMode = res.rows.firstOrNull?.firstOrNull?.toString();
     } catch (_) {}
 
-    if (journalMode != preferredJournalMode && journalMode != fallbackJournalMode) {
-      journalModeCommand = 'PRAGMA journal_mode=$fallbackJournalMode; ';
-    }
+    final journalModeCommand = journalMode == preferredJournalMode || journalMode == fallbackJournalMode ? '' : 'PRAGMA journal_mode=$fallbackJournalMode; ';
 
-    sql.execute("${journalModeCommand}PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=15000; PRAGMA read_uncommitted=1;");
+    sql.execute("${journalModeCommand}PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=15000; PRAGMA temp_store=MEMORY;");
   }
 }
 
@@ -899,7 +1047,7 @@ class _DBIsolateManager with PortsProvider<Map> {
 
     // -- start listening
     StreamSubscription? streamSub;
-    streamSub = recievePort.listen((p) async {
+    streamSub = recievePort.listen((p) {
       if (PortsProvider.isDisposeMessage(p)) {
         recievePort.close();
         streamSub?.cancel();
@@ -913,28 +1061,10 @@ class _DBIsolateManager with PortsProvider<Map> {
 
       dynamic readRes;
       Object? exception;
-      bool manualCommit = false;
-
-      if (manualCommit) {
-        // TODO: start transaction function
-        try {
-          db.sql!.execute('BEGIN;');
-          readRes = command.execute(db);
-          db.sql!.execute('COMMIT;');
-        } catch (e) {
-          exception = e;
-          try {
-            db.sql!.execute('ROLLBACK;');
-          } catch (e) {
-            exception = e;
-          }
-        }
-      } else {
-        try {
-          readRes = command.execute(db);
-        } catch (e) {
-          exception = e;
-        }
+      try {
+        readRes = command.execute(db);
+      } catch (e) {
+        exception = e;
       }
 
       sendPort.send([token, readRes, exception]);

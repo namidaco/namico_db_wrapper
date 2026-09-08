@@ -62,7 +62,8 @@ class DBConfig {
 
   @override
   int get hashCode {
-    return encryptionKey.hashCode ^ customTypes.hashCode ^ createIfNotExist.hashCode ^ autoDisposeTimerDuration.hashCode;
+    final customTypes = this.customTypes;
+    return Object.hash(encryptionKey, customTypes == null ? null : Object.hashAll(customTypes), createIfNotExist, autoDisposeTimerDuration);
   }
 
   @override

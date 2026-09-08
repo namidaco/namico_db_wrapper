@@ -1,3 +1,5 @@
+// ignore_for_file: experimental_member_use
+
 part of '../../../namico_db_wrapper.dart';
 
 final class DBCommands extends DBCommandsBase {
@@ -14,12 +16,17 @@ final class DBCommands extends DBCommandsBase {
   }
 
   @override
+  List<String> columnNamesForRow(RawPreparedStatement st, List<String>? cached) => const [];
+
+  @override
   Map<String, dynamic>? parseRow(List<String> columnNames, List<Object?> row) {
     try {
-      var jsonString = row.firstOrNull;
-      return jsonString is String ? jsonDecode(jsonString) as Map<String, dynamic>? : null;
-    } catch (_) {}
-    return null;
+      final jsonString = row[0];
+      if (jsonString is! String) return null;
+      return jsonDecode(jsonString) as Map<String, dynamic>?;
+    } catch (_) {
+      return null;
+    }
   }
 
   @override
@@ -33,13 +40,19 @@ final class DBCommands extends DBCommandsBase {
   }
 
   @override
-  List<dynamic> objectToWriteParameters(String key, Map<String, dynamic>? object) {
+  bool get isWriteStatementStatic => true;
+
+  @override
+  List<String>? writeColumnsOf(Map<String, dynamic>? object) => null;
+
+  @override
+  List<dynamic> objectToWriteParameters(String key, Map<String, dynamic>? object, List<String>? writeColumns) {
     return [key, object == null ? null : jsonEncode(object)];
   }
 
   @override
   String selectKeyCommand(String tableName) {
-    return 'SELECT value FROM $tableName WHERE key IN (?)';
+    return 'SELECT value FROM $tableName WHERE key = ?';
   }
 
   @override
@@ -64,7 +77,7 @@ CREATE TABLE IF NOT EXISTS $tableName (
   void alterIfRequired(String tableName, Database sql) {}
 
   @override
-  String writeCommand(String tableName, Iterable<String>? keys) {
+  String writeCommand(String tableName, List<String>? writeColumns) {
     return '''
 INSERT INTO $tableName (key, value)
 VALUES (?, ?)
