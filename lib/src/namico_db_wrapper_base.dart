@@ -13,6 +13,33 @@ part of '../namico_db_wrapper.dart';
 class DBWrapper extends DBWrapperAsync {
   final DBWrapperSync sync;
 
+  static const _kDBFilesSuffixes = <String>{'', '-wal', '-wal2', '-shm', '-journal'};
+
+  /// Deletes the db file and its journal files, the db must be closed.
+  ///
+  /// Retries for a moment as windows can hold the file lock after closing, and empties the file as a last resort.
+  static Future<void> deleteFiles(DbWrapperFileInfo fileInfo) async {
+    final dbPath = fileInfo.file.path;
+    for (final suffix in _kDBFilesSuffixes) {
+      final file = File('$dbPath$suffix');
+      if (!file.existsSync()) continue;
+      bool deleted = false;
+      for (int i = 0; i < 10 && !deleted; i++) {
+        try {
+          await file.delete();
+          deleted = true;
+        } catch (_) {
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+      }
+      if (!deleted) {
+        try {
+          await file.writeAsBytes(const []);
+        } catch (_) {}
+      }
+    }
+  }
+
   DBWrapper._({
     required this.sync,
     required super.fileInfo,
@@ -690,8 +717,7 @@ class DBWrapperSync with DBWrapperInterfaceSync {
     } catch (_) {}
 
     final dbPath = fileInfo.file.path;
-    const kDBNamesSuffixes = <String>{'', '-wal', '-wal2', '-shm', '-journal'};
-    for (final suffix in kDBNamesSuffixes) {
+    for (final suffix in DBWrapper._kDBFilesSuffixes) {
       _deleteWithRetry('$dbPath$suffix');
     }
 
