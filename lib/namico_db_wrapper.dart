@@ -12,6 +12,8 @@ import 'package:sqlite3/sqlite3.dart';
 
 import 'package:namico_db_wrapper/src/ports_provider.dart';
 
+export 'package:namico_db_wrapper/src/ports_provider.dart';
+
 part 'package:namico_db_wrapper/src/core/commands/commands.dart';
 part 'package:namico_db_wrapper/src/core/commands/commands_custom.dart';
 part 'src/class/db_column_type.dart';

@@ -1,6 +1,6 @@
 name: namico_db_wrapper
 description: A Wrapper around sqlite3 with encryption support.
-version: 5.1.1
+version: 5.2.0
 repository: https://github.com/namidaco/namico_db_wrapper
 
 environment:

@@ -1001,8 +1001,14 @@ class _DBIsolateManager with PortsProvider<Map> {
     required this.config,
   });
 
-  final _tokenManager = _IsolateMessageToken.create();
+  final _tokenManager = IsolateMessageTokenWrapper.create();
   final _completers = <int, Completer<dynamic>>{};
+
+  @override
+  bool get disposeGracefully => true;
+
+  @override
+  Future<void> onDisposeAll() => dispose();
 
   Future<void> dispose({bool beGentle = true}) async {
     // -- give a small chance for queued operations to finish before closing
@@ -1017,7 +1023,7 @@ class _DBIsolateManager with PortsProvider<Map> {
       }
     }
 
-    if (isInitialized) await disposePort();
+    await disposePort();
 
     if (_completers.isNotEmpty) {
       final pendingCompleters = _completers.values.toList();
@@ -1031,8 +1037,11 @@ class _DBIsolateManager with PortsProvider<Map> {
   }
 
   Future<dynamic> executeIsolate(_IsolateEncodable command) async {
-    if (!isInitialized) await initialize();
-    final token = _tokenManager.next();
+    if (!isInitialized) {
+      await initialize();
+      if (!isInitialized) throw DatabaseDisposedEarlyException(fileInfo: fileInfo, config: config);
+    }
+    final token = _tokenManager.getToken();
     final completer = _completers[token] = Completer<dynamic>();
     sendPort([token, command]);
     return await completer.future;
@@ -1066,6 +1075,7 @@ class _DBIsolateManager with PortsProvider<Map> {
     );
 
     if (db == null) {
+      recievePort.close();
       sendPort.send(PortsProviderMessages.prepared); // send prepared first to assign ports
       sendPort.send(PortsProviderMessages.disposed);
       return;
@@ -1074,7 +1084,7 @@ class _DBIsolateManager with PortsProvider<Map> {
     // -- start listening
     StreamSubscription? streamSub;
     streamSub = recievePort.listen((p) {
-      if (PortsProvider.isDisposeMessage(p)) {
+      if (p == PortsProviderMessages.disposed) {
         recievePort.close();
         streamSub?.cancel();
         db.close();
@@ -1096,12 +1106,12 @@ class _DBIsolateManager with PortsProvider<Map> {
       sendPort.send([token, readRes, exception]);
     });
 
-    sendPort.send(PortsProviderMessages.prepared); // prepared
+    sendPort.send(PortsProviderMessages.prepared);
   }
 
   @override
   void onResult(result) {
-    if (PortsProvider.isDisposeMessage(result)) {
+    if (result == PortsProviderMessages.disposed) {
       if (kDebugMode) debugPrint('PortsProvider.onResult: recieved internal auto dispose message. closing: `${fileInfo.file.path}`');
       dispose();
       return;
@@ -1118,13 +1128,6 @@ class _DBIsolateManager with PortsProvider<Map> {
       }
     }
   }
-}
-
-class _IsolateMessageToken {
-  int _initial = 0;
-  _IsolateMessageToken.create();
-
-  int next() => _initial++;
 }
 
 class _DBKey {
