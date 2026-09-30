@@ -1003,6 +1003,9 @@ class _DBIsolateManager with PortsProvider<Map> {
 
   final _tokenManager = IsolateMessageTokenWrapper.create();
   final _completers = <int, Completer<dynamic>>{};
+  int _awaitingInitCount = 0;
+
+  bool get _hasPendingOperations => _completers.isNotEmpty || _awaitingInitCount > 0;
 
   @override
   bool get disposeGracefully => true;
@@ -1012,12 +1015,12 @@ class _DBIsolateManager with PortsProvider<Map> {
 
   Future<void> dispose({bool beGentle = true}) async {
     // -- give a small chance for queued operations to finish before closing
-    if (_completers.isNotEmpty && beGentle) {
+    if (_hasPendingOperations && beGentle) {
       await Future.microtask(() {}); // -- drain already queued port messages
-      if (_completers.isNotEmpty) {
+      if (_hasPendingOperations) {
         // -- wait up to 500ms
         const interval = Duration(milliseconds: 50);
-        for (int i = 0; i < 10 && _completers.isNotEmpty; i++) {
+        for (int i = 0; i < 10 && _hasPendingOperations; i++) {
           await Future.delayed(interval);
         }
       }
@@ -1038,7 +1041,12 @@ class _DBIsolateManager with PortsProvider<Map> {
 
   Future<dynamic> executeIsolate(_IsolateEncodable command) async {
     if (!isInitialized) {
-      await initialize();
+      _awaitingInitCount++;
+      try {
+        await initialize();
+      } finally {
+        _awaitingInitCount--;
+      }
       if (!isInitialized) throw DatabaseDisposedEarlyException(fileInfo: fileInfo, config: config);
     }
     final token = _tokenManager.getToken();
