@@ -40,6 +40,22 @@ typedef LoadAllKeysCallback = void Function(String key);
 typedef LoadEverythingExtractedCallback = void Function(String key, List<Object?> values);
 
 class NamicoDBWrapper {
+  static Completer<void>? _suspension;
+
+  /// Closes every async db and waits until their files are released, then runs [action].
+  /// Async dbs used meanwhile reopen only after [action] completes, so it can safely replace db files.
+  static Future<T> suspend<T>(Future<T> Function() action) async {
+    final suspension = _suspension = Completer<void>();
+    try {
+      final openedDBAsync = DBWrapperAsync._openedDBAsync.values.toList();
+      await Future.wait(openedDBAsync.map((db) => db._isolateManager.dispose(awaitExit: true)));
+      return await action();
+    } finally {
+      _suspension = null;
+      suspension.complete();
+    }
+  }
+
   static Future<void> dispose() async {
     final openedDBSync = DBWrapperSync._openedDBSync.values.toList();
     for (final db in openedDBSync) {

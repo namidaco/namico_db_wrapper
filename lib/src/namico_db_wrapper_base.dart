@@ -40,6 +40,22 @@ class DBWrapper extends DBWrapperAsync {
     }
   }
 
+  /// Merges leftover wal files into the db file and removes them, the db must be closed everywhere.
+  static void checkpointFilesSync(DbWrapperFileInfo fileInfo, {DBConfig config = const DBConfig()}) {
+    final dbPath = fileInfo.file.path;
+    final hasWalFiles = File('$dbPath-wal').existsSync() || File('$dbPath-wal2').existsSync();
+    if (!hasWalFiles) return;
+
+    final checkpointCommand = const DBCommands().checkpointCommand();
+    final sql = sqlite3.open(fileInfo.dbOpenUriFinal, uri: true);
+    try {
+      sql.prepareDatabase(config: config);
+      sql.execute(checkpointCommand);
+    } finally {
+      sql.close();
+    }
+  }
+
   DBWrapper._({
     required this.sync,
     required super.fileInfo,
@@ -1013,7 +1029,15 @@ class _DBIsolateManager with PortsProvider<Map> {
   @override
   Future<void> onDisposeAll() => dispose();
 
-  Future<void> dispose({bool beGentle = true}) async {
+  @override
+  Future<void> initialize() async {
+    final suspension = NamicoDBWrapper._suspension;
+    if (suspension != null) await suspension.future;
+    return super.initialize();
+  }
+
+  /// [awaitExit] waits until the isolate closed the db.
+  Future<void> dispose({bool beGentle = true, bool awaitExit = false}) async {
     // -- give a small chance for queued operations to finish before closing
     if (_hasPendingOperations && beGentle) {
       await Future.microtask(() {}); // -- drain already queued port messages
@@ -1026,7 +1050,7 @@ class _DBIsolateManager with PortsProvider<Map> {
       }
     }
 
-    await disposePort();
+    await disposePort(awaitExit: awaitExit);
 
     if (_completers.isNotEmpty) {
       final pendingCompleters = _completers.values.toList();

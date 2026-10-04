@@ -26,6 +26,9 @@ mixin PortsProvider<E> {
   StreamSubscription? _streamSub;
   Isolate? _isolate;
 
+  /// Only tracked when [disposeGracefully], since the isolate outlives [disposePort] while releasing its resources.
+  Future<void>? _isolateExit;
+
   bool? _isInitialized;
   Completer<void>? _initializingCompleter;
 
@@ -36,11 +39,14 @@ mixin PortsProvider<E> {
   @protected
   Future<void> onDisposeAll() => disposePort();
 
+  /// [awaitExit] waits until the isolate exited, which is when a graceful one released its resources.
   @protected
-  Future<void> disposePort({bool resetCompleter = true}) async {
+  Future<void> disposePort({bool resetCompleter = true, bool awaitExit = false}) async {
     _activePortsProviders.remove(this);
     _recievePort?.close();
     _streamSub?.cancel();
+    final isolateExit = _isolateExit;
+    _isolateExit = null;
     final sendPort = _portCompleterResult;
     sendPort?.send(PortsProviderMessages.disposed);
     if (sendPort == null || !disposeGracefully) _isolate?.kill(priority: Isolate.immediate);
@@ -58,6 +64,7 @@ mixin PortsProvider<E> {
     _recievePort = null;
     _streamSub = null;
     _isolate = null;
+    if (awaitExit) await isolateExit;
   }
 
   Future<SendPort?> preparePortRaw({
@@ -124,11 +131,20 @@ mixin PortsProvider<E> {
         isolateFunction: (itemsSendPort) async {
           final portCompleter = _portCompleter;
           final isolateFn = await isolateFunction(itemsSendPort);
-          final isolate = await Isolate.spawn(isolateFn.entryPoint, isolateFn.message, debugName: '$runtimeType');
+          final exitPort = disposeGracefully ? ReceivePort() : null;
+          final Isolate isolate;
+          try {
+            isolate = await Isolate.spawn(isolateFn.entryPoint, isolateFn.message, debugName: '$runtimeType', onExit: exitPort?.sendPort);
+          } catch (_) {
+            exitPort?.close();
+            rethrow;
+          }
           if (identical(portCompleter, _portCompleter)) {
             _isolate = isolate;
+            _isolateExit = exitPort?.first;
           } else {
             isolate.kill(priority: Isolate.immediate); // -- disposed while spawning
+            exitPort?.close();
           }
         },
       );
