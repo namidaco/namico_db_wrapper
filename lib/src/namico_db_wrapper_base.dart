@@ -398,6 +398,9 @@ class DBWrapperSync with DBWrapperInterfaceSync {
   /// Write statements for [DBCommandsCustom], keyed by the written columns.
   final _writeStCache = <String, PreparedStatement>{};
 
+  /// [getExtracted] statements, keyed by the json paths count.
+  final _readExtractedStCache = <int, PreparedStatement>{};
+
   @override
   bool get isOpen => _isOpen;
   bool _isOpen = false;
@@ -416,6 +419,10 @@ class DBWrapperSync with DBWrapperInterfaceSync {
       st.close();
     }
     _writeStCache.clear();
+    for (final st in _readExtractedStCache.values) {
+      st.close();
+    }
+    _readExtractedStCache.clear();
     sql?.close();
 
     _readSt = null;
@@ -495,7 +502,7 @@ class DBWrapperSync with DBWrapperInterfaceSync {
         columnNames = _commands.columnNamesForRow(raw, cachedColumnNames);
         final columnCount = raw.columnCount;
         do {
-          rows.add(DBCommandsBase.readRawRow(raw, columnCount));
+          rows.add(_commands.readRow(raw, columnCount));
         } while (raw.step());
       }
     } finally {
@@ -532,21 +539,98 @@ class DBWrapperSync with DBWrapperInterfaceSync {
   /// Reads only `key` + the json fields at [jsonPaths] (e.g. `$.title`) of every row,
   /// extracted by sqlite without decoding the whole value. Values are raw sqlite values (String/int/double/null).
   void loadEverythingExtracted(List<String> jsonPaths, LoadEverythingExtractedCallback onValue) {
-    final st = _commandsManager.buildLoadEverythingExtractedStatement(jsonPaths);
+    final pathsCount = jsonPaths.length;
+    final st = _commandsManager.buildLoadEverythingExtractedStatement(pathsCount);
     try {
       final raw = st.raw;
-      final pathsCount = jsonPaths.length;
-      while (raw.step()) {
-        if (raw.columnType(0) != SqlType.SQLITE_TEXT) continue;
-        final key = raw.columnText(0);
-        final values = List<Object?>.filled(pathsCount, null);
-        for (int i = 0; i < pathsCount; i++) {
-          values[i] = DBCommandsBase.readColumnValue(raw, i + 1);
-        }
-        onValue(key, values);
-      }
+      _bindTexts(raw, jsonPaths, 0, pathsCount, 1);
+      _stepExtractedKeyedRows(raw, pathsCount, onValue);
     } finally {
       st.close();
+    }
+  }
+
+  /// Reads only the json fields at [jsonPaths] (e.g. `$.title`) of [key], extracted by sqlite without decoding the whole value.
+  /// Values are raw sqlite values (String/int/double/null) in the same order as [jsonPaths], or null if [key] doesn't exist.
+  @override
+  List<Object?>? getExtracted(String key, List<String> jsonPaths) {
+    final pathsCount = jsonPaths.length;
+    final st = _readExtractedStCache[pathsCount] ??= _commandsManager.buildReadKeyExtractedStatement(pathsCount);
+    final raw = st.raw;
+    st.reset();
+    _bindTexts(raw, jsonPaths, 0, pathsCount, 1);
+    raw.bindText(pathsCount + 1, key);
+    try {
+      if (!raw.step()) return null;
+      return _readColumnValues(raw, 0, pathsCount);
+    } finally {
+      st.reset();
+    }
+  }
+
+  /// Same as [getExtracted] but for multiple keys, missing keys are skipped.
+  void getAllExtracted(List<String> keys, List<String> jsonPaths, LoadEverythingExtractedCallback onValue) {
+    if (keys.isEmpty) return;
+
+    final pathsCount = jsonPaths.length;
+    final chunkSize = DBCommandsBase.maxParametersPerStatement - pathsCount;
+    final fullChunks = keys.length ~/ chunkSize;
+    final remainder = keys.length % chunkSize;
+
+    if (fullChunks > 0) {
+      final st = _commandsManager.buildReadKeysExtractedStatement(pathsCount, chunkSize);
+      try {
+        final raw = st.raw;
+        _bindTexts(raw, jsonPaths, 0, pathsCount, 1);
+        for (int c = 0; c < fullChunks; c++) {
+          st.reset();
+          _bindTexts(raw, keys, c * chunkSize, chunkSize, pathsCount + 1);
+          _stepExtractedKeyedRows(raw, pathsCount, onValue);
+        }
+      } finally {
+        st.close();
+      }
+    }
+    if (remainder > 0) {
+      final st = _commandsManager.buildReadKeysExtractedStatement(pathsCount, remainder);
+      try {
+        final raw = st.raw;
+        _bindTexts(raw, jsonPaths, 0, pathsCount, 1);
+        _bindTexts(raw, keys, fullChunks * chunkSize, remainder, pathsCount + 1);
+        _stepExtractedKeyedRows(raw, pathsCount, onValue);
+      } finally {
+        st.close();
+      }
+    }
+  }
+
+  @override
+  Map<String, List<Object?>> getAllExtractedResult(List<String> keys, List<String> jsonPaths) {
+    final valuesMap = <String, List<Object?>>{};
+    this.getAllExtracted(keys, jsonPaths, (key, values) => valuesMap[key] = values);
+    return valuesMap;
+  }
+
+  static void _bindTexts(RawPreparedStatement raw, List<String> texts, int start, int count, int firstIndex) {
+    for (int i = 0; i < count; i++) {
+      raw.bindText(firstIndex + i, texts[start + i]);
+    }
+  }
+
+  static List<Object?> _readColumnValues(RawPreparedStatement raw, int firstColumn, int count) {
+    final values = List<Object?>.filled(count, null);
+    for (int i = 0; i < count; i++) {
+      values[i] = DBCommandsBase.readColumnValue(raw, firstColumn + i);
+    }
+    return values;
+  }
+
+  static void _stepExtractedKeyedRows(RawPreparedStatement raw, int pathsCount, LoadEverythingExtractedCallback onValue) {
+    while (raw.step()) {
+      if (raw.columnType(0) != SqlType.SQLITE_TEXT) continue;
+      final key = raw.columnText(0);
+      final values = _readColumnValues(raw, 1, pathsCount);
+      onValue(key, values);
     }
   }
 
@@ -584,7 +668,8 @@ class DBWrapperSync with DBWrapperInterfaceSync {
     try {
       if (!raw.step()) return null;
       final columnNames = _readStColumnNames = _commands.columnNamesForRow(raw, _readStColumnNames);
-      return _commands.parseRow(columnNames, DBCommandsBase.readRawRow(raw, raw.columnCount));
+      final row = _commands.readRow(raw, raw.columnCount);
+      return _commands.parseRow(columnNames, row);
     } finally {
       st.reset();
     }
@@ -631,7 +716,7 @@ class DBWrapperSync with DBWrapperInterfaceSync {
     final columnCount = raw.columnCount;
     final rows = <List<Object?>>[];
     do {
-      rows.add(DBCommandsBase.readRawRow(raw, columnCount));
+      rows.add(_commands.readRow(raw, columnCount));
     } while (raw.step());
     for (int i = 0; i < rows.length; i++) {
       final parsed = _commands.parseRow(columnNames, rows[i]);
@@ -645,14 +730,21 @@ class DBWrapperSync with DBWrapperInterfaceSync {
   void _put(String key, Map<String, dynamic>? object) {
     final writeStDefault = _writeStDefault;
     if (writeStDefault != null) {
-      writeStDefault.execute(_commands.objectToWriteParameters(key, object, null));
+      _executeWrite(writeStDefault, key, object, null);
       return;
     }
     // `DBCommandsCustom` statement depends on which columns [object] has.
     final writeColumns = _commands.writeColumnsOf(object);
     final cacheKey = writeColumns == null ? '' : writeColumns.join(',');
     final st = _writeStCache[cacheKey] ??= _commandsManager.buildWriteStatement(writeColumns);
-    st.execute(_commands.objectToWriteParameters(key, object, writeColumns));
+    _executeWrite(st, key, object, writeColumns);
+  }
+
+  void _executeWrite(PreparedStatement st, String key, Map<String, dynamic>? object, List<String>? writeColumns) {
+    final raw = st.raw;
+    st.reset();
+    _commands.bindWriteParameters(raw, key, object, writeColumns);
+    raw.step();
   }
 
   void putAll<E>(DBWriteList writeList) {
@@ -863,6 +955,21 @@ class DBWrapperAsync with DBWrapperInterfaceAsync {
   }
 
   @override
+  Future<List<Object?>?> getExtracted(String key, List<String> jsonPaths) async {
+    final command = _IsolateEncodable.readKeyExtracted(key, jsonPaths);
+    final res = await _executeAsync(command);
+    return res as List<Object?>?;
+  }
+
+  @override
+  Future<Map<String, List<Object?>>> getAllExtractedResult(List<String> keys, List<String> jsonPaths) async {
+    if (keys.isEmpty) return {};
+    final command = _IsolateEncodable.readListExtracted(keys, jsonPaths);
+    final res = await _executeAsync(command);
+    return res as Map<String, List<Object?>>;
+  }
+
+  @override
   Future<void> put(String key, Map<String, dynamic>? object) {
     final entries = DBWriteList.fromEntry(key, object);
     return _writeAsync(entries);
@@ -971,8 +1078,18 @@ class _DBCommandsManager {
     return sql.prepare(command, persistent: false);
   }
 
-  PreparedStatement buildLoadEverythingExtractedStatement(List<String> jsonPaths) {
-    final command = _commands.loadEverythingExtractedCommand(tableName, jsonPaths);
+  PreparedStatement buildLoadEverythingExtractedStatement(int pathsCount) {
+    final command = _commands.loadEverythingExtractedCommand(tableName, pathsCount);
+    return sql.prepare(command, persistent: false);
+  }
+
+  PreparedStatement buildReadKeyExtractedStatement(int pathsCount) {
+    final command = _commands.selectKeyExtractedCommand(tableName, pathsCount);
+    return sql.prepare(command, persistent: true);
+  }
+
+  PreparedStatement buildReadKeysExtractedStatement(int pathsCount, int keysCount) {
+    final command = _commands.selectKeysExtractedCommand(tableName, pathsCount, keysCount);
     return sql.prepare(command, persistent: false);
   }
 }
@@ -1004,7 +1121,13 @@ extension DatabaseUtils on Database {
 
     final journalModeCommand = journalMode == preferredJournalMode || journalMode == fallbackJournalMode ? '' : 'PRAGMA journal_mode=$fallbackJournalMode; ';
 
-    sql.execute("${journalModeCommand}PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=15000; PRAGMA temp_store=MEMORY;");
+    final cacheSizeInMB = config.cacheSizeInMB;
+    // -- encrypted pages can't be served from a memory map
+    final mmapSizeInMB = encryptionKey == null ? config.mmapSizeInMB : null;
+    final cacheSizeCommand = cacheSizeInMB == null ? '' : ' PRAGMA cache_size=-${cacheSizeInMB * 1024};';
+    final mmapSizeCommand = mmapSizeInMB == null ? '' : ' PRAGMA mmap_size=${mmapSizeInMB * 1024 * 1024};';
+
+    sql.execute("${journalModeCommand}PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=15000; PRAGMA temp_store=MEMORY;$cacheSizeCommand$mmapSizeCommand");
   }
 }
 

@@ -146,6 +146,32 @@ final bool keyExists = db.containsKey('unique_key');
 db.deleteEverything();
 ```
 
+## reading only some fields
+sqlite extracts the json fields, so the whole value is never decoded in dart.
+
+```dart
+// one key, values come in the same order as the paths. null if the key doesn't exist
+final values = await db.getExtracted(videoId, [r'$.info.title', r'$.info.channelName']);
+final title = values?[0] as String?;
+
+// many keys in one query (per 999 params), missing keys are skipped
+final infos = await db.getAllExtractedResult(videoIds, [r'$.info.title', r'$.info.durSeconds']);
+final durSeconds = infos[videoId]?[1] as int?;
+
+// every row
+db.loadEverythingExtracted([r'$.info.title'], (key, values) => titles[key] = values[0] as String?);
+```
+
+when to use:
+- values of a few KBs+ (api responses, streams, pages) where the caller needs a few fields: ~3x faster than `get` on 16KB values.
+- small values (< ~1KB): use `get`, a full decode is as fast or faster.
+- many keys: `getAllExtractedResult` instead of `getExtracted` in a loop.
+- not supported with `customTypes`.
+
+values are raw sqlite values: `String`, `int`, `double` or `null` (missing path). bools come back as `1`/`0`,
+and objects/lists as json text, decode just that piece with `jsonDecode`.
+paths look like `$.a.b`, `$.list[0]`, `$."key with spaces"`.
+
 
 ## close
 see [DBWrapper.close()](./lib/src/namico_db_wrapper_base.dart#L103) & [_DBIsolateManager._prepareResourcesAndListen()](./lib/src/namico_db_wrapper_base.dart#L380) to know what resources are allocated

@@ -26,6 +26,12 @@ abstract mixin class DBWrapperInterfaceAsync<D> implements DBWrapperInterfaceSyn
   Future<List<Map<String, dynamic>>> getAll(List<String> keys);
 
   @override
+  Future<List<Object?>?> getExtracted(String key, List<String> jsonPaths);
+
+  @override
+  Future<Map<String, List<Object?>>> getAllExtractedResult(List<String> keys, List<String> jsonPaths);
+
+  @override
   Future<void> put(String key, Map<String, dynamic>? object);
 
   /// same as [put] but for multiple values.
@@ -76,6 +82,15 @@ abstract mixin class DBWrapperInterfaceSync {
   FutureOr<Map<String, dynamic>?> get(String key);
 
   FutureOr<List<Map<String, dynamic>>> getAll(List<String> keys);
+
+  /// get only the json fields at [jsonPaths] (e.g. `$.title`) of a key, extracted by sqlite without decoding the whole value.
+  /// values are in the same order as [jsonPaths]. returns null if the key doesn't exist.
+  ///
+  /// faster than [get] only for large values (a few KBs+), and not supported with [DBConfig.customTypes].
+  FutureOr<List<Object?>?> getExtracted(String key, List<String> jsonPaths);
+
+  /// same as [getExtracted] but for multiple keys, missing keys are skipped.
+  FutureOr<Map<String, List<Object?>>> getAllExtractedResult(List<String> keys, List<String> jsonPaths);
 
   /// puts a value [object] to a [key] in the db. if the key already exists then it's overriden.
   /// if [DBConfig.customTypes] are provided then the keys of [object] should be the same as the column names of [DBConfig.customTypes].

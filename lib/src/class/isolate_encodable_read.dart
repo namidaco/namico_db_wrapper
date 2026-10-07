@@ -24,6 +24,24 @@ class _IsolateEncodableReadList extends _IsolateEncodable {
   List<Map<String, dynamic>> execute(DBWrapperSync db) => db.getAll(keys);
 }
 
+class _IsolateEncodableReadKeyExtracted extends _IsolateEncodable {
+  final String key;
+  final List<String> jsonPaths;
+  const _IsolateEncodableReadKeyExtracted(this.key, this.jsonPaths);
+
+  @override
+  List<Object?>? execute(DBWrapperSync db) => db.getExtracted(key, jsonPaths);
+}
+
+class _IsolateEncodableReadListExtracted extends _IsolateEncodable {
+  final List<String> keys;
+  final List<String> jsonPaths;
+  const _IsolateEncodableReadListExtracted(this.keys, this.jsonPaths);
+
+  @override
+  Map<String, List<Object?>> execute(DBWrapperSync db) => db.getAllExtractedResult(keys, jsonPaths);
+}
+
 class _IsolateEncodableLoadEverything extends _IsolateEncodable {
   const _IsolateEncodableLoadEverything();
 

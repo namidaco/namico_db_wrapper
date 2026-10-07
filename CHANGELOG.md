@@ -1,3 +1,36 @@
+## 5.4.0
+
+### Performance
+
+- json values are read as raw utf8 bytes & decoded with a fused utf8+json decoder, and written as utf8 bytes cast to TEXT. the stored format is unchanged.
+- bigger page cache & memory mapped reads by default, see `DBConfig.cacheSizeInMB` & `DBConfig.mmapSizeInMB` (mmap is skipped for encrypted dbs).
+- auto dispose no longer recreates a timer on every call.
+- writes bind parameters directly instead of going through `execute()`.
+
+| Operation (AOT, default config) | 100k small values, 11 chars keys | 100k small values, path keys | 4k x 16KB values |
+|---|---|---|---|
+| `get` all keys | 1408 -> 386ms | 1719 -> 452ms | 455 -> 179ms |
+| `containsKey` all keys | 740 -> 247ms | 1143 -> 288ms | 23 -> 13ms |
+| `getAll` | 846 -> 266ms | 1020 -> 343ms | 522 -> 301ms |
+| `putAll` (insert) | 512 -> 389ms | 1605 -> 537ms | 893 -> 874ms |
+| `putAll` (update) | 431 -> 330ms | 721 -> 335ms | 461 -> 477ms |
+| `loadEverythingKeyed` | 206 -> 188ms | 234 -> 217ms | 793 -> 334ms |
+| async `get` x2000 | 70 -> 41ms | 94 -> 49ms | 336 -> 158ms |
+| async `getAll` | 908 -> 344ms | 1252 -> 481ms | 699 -> 467ms |
+
+### Features
+
+- `getExtracted` & `getAllExtractedResult` (+ sync `getAllExtracted`) read only some json fields, extracted by sqlite. ~3x faster than `get` for large values.
+
+### Fixes
+
+- `loadEverythingExtracted` paths are bound as parameters instead of being inlined in sql.
+
+### Breaking
+
+- `DBCommandsBase.objectToWriteParameters` is replaced by `bindWriteParameters`, `loadEverythingExtractedCommand` takes the paths count.
+- `DBConfig.required` requires `cacheSizeInMB` & `mmapSizeInMB`.
+
 ## 5.1.0
 
 ### Performance

@@ -3,6 +3,8 @@ part of '../../namico_db_wrapper.dart';
 
 class DBConfig {
   static const Duration defaultDisposeTimerDuration = Duration(minutes: 5);
+  static const int defaultCacheSizeInMB = 16;
+  static const int defaultMmapSizeInMB = 256;
 
   /// Encryption key for the whole database.
   final String? encryptionKey;
@@ -23,11 +25,24 @@ class DBConfig {
   /// Defaults to [DBConfig.defaultDisposeTimerDuration].
   final Duration? autoDisposeTimerDuration;
 
+  /// Max page cache size (`PRAGMA cache_size`), only allocated as pages get used. null keeps sqlite default (2MB).
+  ///
+  /// Defaults to [DBConfig.defaultCacheSizeInMB].
+  final int? cacheSizeInMB;
+
+  /// Max memory mapped size of the db file (`PRAGMA mmap_size`), maps only as much as the file size. null disables it.
+  /// Speeds up reads a lot by skipping a read syscall per page, ignored for encrypted dbs.
+  ///
+  /// Defaults to [DBConfig.defaultMmapSizeInMB].
+  final int? mmapSizeInMB;
+
   const DBConfig({
     this.encryptionKey,
     this.customTypes,
     this.createIfNotExist = false,
     this.autoDisposeTimerDuration = DBConfig.defaultDisposeTimerDuration,
+    this.cacheSizeInMB = DBConfig.defaultCacheSizeInMB,
+    this.mmapSizeInMB = DBConfig.defaultMmapSizeInMB,
   });
 
   const DBConfig.required({
@@ -35,6 +50,8 @@ class DBConfig {
     required this.customTypes,
     required this.createIfNotExist,
     required this.autoDisposeTimerDuration,
+    required this.cacheSizeInMB,
+    required this.mmapSizeInMB,
   });
 
   DBConfig copyWith({
@@ -42,12 +59,16 @@ class DBConfig {
     List<DBColumnType>? customTypes,
     bool? createIfNotExist,
     Duration? autoDisposeTimerDuration,
+    int? cacheSizeInMB,
+    int? mmapSizeInMB,
   }) =>
       DBConfig(
         encryptionKey: encryptionKey ?? this.encryptionKey,
         customTypes: customTypes ?? this.customTypes,
         createIfNotExist: createIfNotExist ?? this.createIfNotExist,
         autoDisposeTimerDuration: autoDisposeTimerDuration ?? this.autoDisposeTimerDuration,
+        cacheSizeInMB: cacheSizeInMB ?? this.cacheSizeInMB,
+        mmapSizeInMB: mmapSizeInMB ?? this.mmapSizeInMB,
       );
 
   @override
@@ -57,17 +78,20 @@ class DBConfig {
     return other.encryptionKey == encryptionKey &&
         listEquals(other.customTypes, customTypes) &&
         other.createIfNotExist == createIfNotExist &&
-        other.autoDisposeTimerDuration == autoDisposeTimerDuration;
+        other.autoDisposeTimerDuration == autoDisposeTimerDuration &&
+        other.cacheSizeInMB == cacheSizeInMB &&
+        other.mmapSizeInMB == mmapSizeInMB;
   }
 
   @override
   int get hashCode {
     final customTypes = this.customTypes;
-    return Object.hash(encryptionKey, customTypes == null ? null : Object.hashAll(customTypes), createIfNotExist, autoDisposeTimerDuration);
+    final customTypesHash = customTypes == null ? null : Object.hashAll(customTypes);
+    return Object.hash(encryptionKey, customTypesHash, createIfNotExist, autoDisposeTimerDuration, cacheSizeInMB, mmapSizeInMB);
   }
 
   @override
   String toString() {
-    return 'DBConfig(encryptionKey: $encryptionKey, customTypes: $customTypes, createIfNotExist: $createIfNotExist, autoDisposeTimerDuration: $autoDisposeTimerDuration)';
+    return 'DBConfig(encryptionKey: $encryptionKey, customTypes: $customTypes, createIfNotExist: $createIfNotExist, autoDisposeTimerDuration: $autoDisposeTimerDuration, cacheSizeInMB: $cacheSizeInMB, mmapSizeInMB: $mmapSizeInMB)';
   }
 }

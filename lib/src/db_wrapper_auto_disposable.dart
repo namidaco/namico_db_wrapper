@@ -6,6 +6,7 @@ part of '../namico_db_wrapper.dart';
 /// The Duration is indicated by [disposeTimerDuration].
 /// Disposable operations like [claimFreeSpaceAndCheckpoint], [delete], [deleteBulk], [deleteEverything] will not mark the db as in use.
 class _DBWrapperSyncAutoDisposable extends DBWrapperSync with _DBDisposeTimerManager {
+  @override
   final Duration disposeTimerDuration;
 
   _DBWrapperSyncAutoDisposable._openFromInfo({
@@ -18,12 +19,13 @@ class _DBWrapperSyncAutoDisposable extends DBWrapperSync with _DBDisposeTimerMan
   }
 
   @override
-  Timer _createNewTimer() => Timer(disposeTimerDuration, super.close);
+  void _onIdle() => super.close();
 
   @override
   DBWrapperSync reOpen() {
+    final db = super.reOpen();
     _rescheduleDisposeTimer();
-    return super.reOpen();
+    return db;
   }
 
   @override
@@ -55,6 +57,18 @@ class _DBWrapperSyncAutoDisposable extends DBWrapperSync with _DBDisposeTimerMan
   List<Map<String, dynamic>> getAll(List<String> keys) {
     _rescheduleDisposeTimer();
     return super.getAll(keys);
+  }
+
+  @override
+  List<Object?>? getExtracted(String key, List<String> jsonPaths) {
+    _rescheduleDisposeTimer();
+    return super.getExtracted(key, jsonPaths);
+  }
+
+  @override
+  void getAllExtracted(List<String> keys, List<String> jsonPaths, LoadEverythingExtractedCallback onValue) {
+    _rescheduleDisposeTimer();
+    return super.getAllExtracted(keys, jsonPaths, onValue);
   }
 
   @override
@@ -149,16 +163,32 @@ class _DBWrapperSyncAutoDisposable extends DBWrapperSync with _DBDisposeTimerMan
   }
 }
 
+/// Recreating a [Timer] on every call costs ~1.3µs, so calls only stamp the time and the single timer re-arms itself for the remaining idle time.
 mixin _DBDisposeTimerManager {
-  Timer? _disposeTimer;
+  static final _clock = Stopwatch()..start();
 
-  Timer _createNewTimer();
+  Timer? _disposeTimer;
+  int _lastUsedMicroseconds = 0;
+
+  Duration get disposeTimerDuration;
+  void _onIdle();
   void _ensureDbOpen();
 
   void _rescheduleDisposeTimer() {
     _ensureDbOpen();
-    _disposeTimer?.cancel();
-    _disposeTimer = _createNewTimer();
+    _lastUsedMicroseconds = _clock.elapsedMicroseconds;
+    _disposeTimer ??= Timer(disposeTimerDuration, _onDisposeTimerFired);
+  }
+
+  void _onDisposeTimerFired() {
+    final idleMicroseconds = _clock.elapsedMicroseconds - _lastUsedMicroseconds;
+    final remainingMicroseconds = disposeTimerDuration.inMicroseconds - idleMicroseconds;
+    if (remainingMicroseconds > 0) {
+      _disposeTimer = Timer(Duration(microseconds: remainingMicroseconds), _onDisposeTimerFired);
+      return;
+    }
+    _disposeTimer = null;
+    _onIdle();
   }
 
   void _cancelTimer() {

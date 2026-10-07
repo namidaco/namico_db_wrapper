@@ -56,14 +56,13 @@ final class DBCommandsCustom extends DBCommandsBase {
   }
 
   @override
-  List<dynamic> objectToWriteParameters(String key, Map<String, dynamic>? object, List<String>? writeColumns) {
-    if (writeColumns == null || object == null) return [key];
-    final params = List<dynamic>.filled(writeColumns.length + 1, null);
-    params[0] = key;
+  void bindWriteParameters(RawPreparedStatement st, String key, Map<String, dynamic>? object, List<String>? writeColumns) {
+    st.bindText(1, key);
+    if (writeColumns == null || object == null) return;
     for (int i = 0; i < writeColumns.length; i++) {
-      params[i + 1] = object[writeColumns[i]];
+      final value = object[writeColumns[i]];
+      DBCommandsBase.bindValue(st, i + 2, value);
     }
-    return params;
   }
 
   @override

@@ -1,5 +1,6 @@
 // ignore_for_file: unused_element
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:benchmarking/benchmarking.dart';
@@ -247,6 +248,89 @@ void main() {
       expect(dbwrapper.containsKey('k2400'), isFalse);
       dbwrapper.deleteEverything();
       expect(dbwrapper.loadAllKeysResult(), isEmpty);
+      dbwrapper.close();
+    });
+  });
+  group('Json value tests', () {
+    const syncConfig = DBConfig(createIfNotExist: true, autoDisposeTimerDuration: null);
+    final complexObject = {
+      'title': "Nightcore - Need You 🎧 (it's) — عربي",
+      'count': 12,
+      'rating': 0.75,
+      'fav': true,
+      'tags': ['a', 'b'],
+      'channel': {'id': 'UCeZje_7vr6CPK9vPQDfV3WA', 'subs': null},
+    };
+
+    test('non ascii, nested & null values roundtrip', () {
+      final dbwrapper = DBWrapper.openSync(dir, 'json_roundtrip', config: syncConfig);
+      dbwrapper.put('k1', complexObject);
+      expect(dbwrapper.get('k1'), complexObject);
+      final valueType = dbwrapper.sql!.select("SELECT typeof(value) FROM ${dbwrapper.fileInfo.dbTableName} WHERE key = 'k1'").first.values.first;
+      expect(valueType, 'text');
+
+      dbwrapper.put('k2', null);
+      expect(dbwrapper.get('k2'), isNull);
+      expect(dbwrapper.containsKey('k2'), isTrue);
+      dbwrapper.close();
+    });
+
+    test('reads rows written as text by older versions', () {
+      final dbwrapper = DBWrapper.openSync(dir, 'json_legacy_text', config: syncConfig);
+      final legacyJson = jsonEncode(complexObject);
+      dbwrapper.sql!.execute('INSERT OR REPLACE INTO ${dbwrapper.fileInfo.dbTableName} (key, value) VALUES (?, ?)', ['legacy', legacyJson]);
+      expect(dbwrapper.get('legacy'), complexObject);
+      expect(dbwrapper.getAll(['legacy']), [complexObject]);
+      expect(dbwrapper.loadEverythingKeyedResult()['legacy'], complexObject);
+      dbwrapper.close();
+    });
+
+    test('pragmas', () {
+      final dbwrapper = DBWrapper.openSync(dir, 'json_pragmas', config: syncConfig);
+      final cacheSize = dbwrapper.sql!.select('PRAGMA cache_size').first.values.first;
+      final mmapSize = dbwrapper.sql!.select('PRAGMA mmap_size').first.values.first;
+      expect(cacheSize, -DBConfig.defaultCacheSizeInMB * 1024);
+      expect(mmapSize, DBConfig.defaultMmapSizeInMB * 1024 * 1024);
+      dbwrapper.close();
+    });
+
+    test('getExtracted/getAllExtracted', () async {
+      final dbwrapper = DBWrapper.openSyncAsync(dir, 'json_extracted', config: syncConfig);
+      const count = 1200;
+      final items = List.generate(count, (i) => MapEntry('k$i', {'title': 't$i', 'n': i, "it's": i.isEven}));
+      dbwrapper.sync.putAll(DBWriteList(items));
+      const paths = [r'$.title', r'$.n', r'''$."it's"''', r'$.missing'];
+
+      expect(dbwrapper.sync.getExtracted('k7', paths), ['t7', 7, 0, null]);
+      expect(dbwrapper.sync.getExtracted('nope', paths), isNull);
+      expect(await dbwrapper.getExtracted('k8', paths), ['t8', 8, 1, null]);
+
+      final keys = [...items.map((e) => e.key), 'nope'];
+      final res = dbwrapper.sync.getAllExtractedResult(keys, paths);
+      expect(res.length, count);
+      expect(res['k1199'], ['t1199', 1199, 0, null]);
+      final resAsync = await dbwrapper.getAllExtractedResult(keys, paths);
+      expect(resAsync, res);
+
+      int loadedCount = 0;
+      dbwrapper.sync.loadEverythingExtracted(paths, (key, values) {
+        if (values[1] == int.parse(key.substring(1))) loadedCount++;
+      });
+      expect(loadedCount, count);
+      await dbwrapper.close();
+    });
+
+    test('auto dispose re-arms after use', () async {
+      final dbwrapper = DBWrapper.openSync(dir, 'json_auto_dispose', config: DBConfig(createIfNotExist: true, autoDisposeTimerDuration: Duration(seconds: 1)));
+      dbwrapper.put('k', {'a': 1});
+      await Future.delayed(Duration(milliseconds: 600));
+      expect(dbwrapper.get('k'), {'a': 1});
+      await Future.delayed(Duration(milliseconds: 600));
+      expect(dbwrapper.isOpen, isTrue);
+      await Future.delayed(Duration(milliseconds: 800));
+      expect(dbwrapper.isOpen, isFalse);
+      expect(dbwrapper.get('k'), {'a': 1});
+      expect(dbwrapper.isOpen, isTrue);
       dbwrapper.close();
     });
   });

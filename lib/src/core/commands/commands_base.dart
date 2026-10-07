@@ -16,22 +16,51 @@ abstract interface class DBCommandsBase {
   String loadEverythingCommand(String tableName);
   String loadEverythingKeyedCommand(String tableName);
 
-  /// Selects `key` followed by `json_extract(value, path)` for each path in [jsonPaths].
-  String loadEverythingExtractedCommand(String tableName, List<String> jsonPaths) {
+  /// Selects `key` followed by `json_extract(value, ?)` for each json path, paths are bound as parameters `1..pathsCount`.
+  String loadEverythingExtractedCommand(String tableName, int pathsCount) {
     final buffer = StringBuffer('SELECT key');
-    for (final path in jsonPaths) {
-      buffer.write(", json_extract(value, '");
-      buffer.write(path);
-      buffer.write("')");
-    }
+    _writeJsonExtractColumns(buffer, pathsCount);
     buffer.write(' FROM ');
     buffer.write(tableName);
     return buffer.toString();
   }
 
+  /// Selects `json_extract(value, ?)` for each json path, paths are bound first then the key.
+  String selectKeyExtractedCommand(String tableName, int pathsCount) {
+    final buffer = StringBuffer('SELECT ');
+    for (int i = 0; i < pathsCount; i++) {
+      if (i > 0) buffer.write(', ');
+      buffer.write('json_extract(value, ?)');
+    }
+    buffer.write(' FROM ');
+    buffer.write(tableName);
+    buffer.write(' WHERE key = ?');
+    return buffer.toString();
+  }
+
+  /// Same as [loadEverythingExtractedCommand] but for [keysCount] keys, bound after the paths.
+  String selectKeysExtractedCommand(String tableName, int pathsCount, int keysCount) {
+    final buffer = StringBuffer('SELECT key');
+    _writeJsonExtractColumns(buffer, pathsCount);
+    buffer.write(' FROM ');
+    buffer.write(tableName);
+    buffer.write(' WHERE key IN');
+    DBCommandsBase.writeParameterMarksInBraces(buffer, keysCount);
+    return buffer.toString();
+  }
+
+  static void _writeJsonExtractColumns(StringBuffer buffer, int pathsCount) {
+    for (int i = 0; i < pathsCount; i++) {
+      buffer.write(', json_extract(value, ?)');
+    }
+  }
+
   /// Column names needed by [parseRow]. Must be called after a successful step.
   /// [cached] is reused when the statement column count didn't change.
   List<String> columnNamesForRow(RawPreparedStatement st, List<String>? cached);
+
+  /// Reads the current row of [st] in the shape [parseRow] expects. Must be called after a successful step.
+  List<Object?> readRow(RawPreparedStatement st, int columnCount) => readRawRow(st, columnCount);
 
   Map<String, dynamic>? parseRow(List<String> columnNames, List<Object?> row);
   DBKeyedResults? parseKeyedRow(List<String> columnNames, List<Object?> row);
@@ -39,10 +68,11 @@ abstract interface class DBCommandsBase {
   /// Whether the write statement is the same for every object, in which case it can be prepared once.
   bool get isWriteStatementStatic;
 
-  /// The columns (except `key`) that will be written for [object], in the same order as [objectToWriteParameters].
+  /// The columns (except `key`) that will be written for [object], in the same order as [bindWriteParameters].
   List<String>? writeColumnsOf(Map<String, dynamic>? object);
 
-  List<dynamic> objectToWriteParameters(String key, Map<String, dynamic>? object, List<String>? writeColumns);
+  /// Binds [key] & [object] to a reset write statement built by [writeCommand].
+  void bindWriteParameters(RawPreparedStatement st, String key, Map<String, dynamic>? object, List<String>? writeColumns);
 
   String createTableCommand(String tableName);
   String selectKeyCommand(String tableName);
@@ -95,6 +125,25 @@ abstract interface class DBCommandsBase {
     if (type == SqlType.SQLITE_FLOAT) return st.columnDouble(index);
     if (type == SqlType.SQLITE_BLOB) return st.columnBlob(index);
     return null;
+  }
+
+  static void bindValue(RawPreparedStatement st, int index, Object? value) {
+    switch (value) {
+      case null:
+        st.bindNull(index);
+      case String():
+        st.bindText(index, value);
+      case int():
+        st.bindInt64(index, value);
+      case double():
+        st.bindDouble(index, value);
+      case bool():
+        st.bindInt64(index, value ? 1 : 0);
+      case List<int>():
+        st.bindBlob(index, value);
+      default:
+        throw ArgumentError.value(value, 'value', 'Allowed values are null, String, int, double, bool & List<int>');
+    }
   }
 
   static String sqlLiteral(Object? value) {
