@@ -1109,6 +1109,9 @@ extension DatabaseUtils on Database {
       } catch (_) {}
     }
 
+    // -- before journal_mode, which needs a lock another connection may hold
+    sql.execute('PRAGMA busy_timeout=15000;');
+
     // -- wal2 doesn't always work (like on windows)
     const preferredJournalMode = 'wal2';
     const fallbackJournalMode = 'wal';
@@ -1127,7 +1130,7 @@ extension DatabaseUtils on Database {
     final cacheSizeCommand = cacheSizeInMB == null ? '' : ' PRAGMA cache_size=-${cacheSizeInMB * 1024};';
     final mmapSizeCommand = mmapSizeInMB == null ? '' : ' PRAGMA mmap_size=${mmapSizeInMB * 1024 * 1024};';
 
-    sql.execute("${journalModeCommand}PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=15000; PRAGMA temp_store=MEMORY;$cacheSizeCommand$mmapSizeCommand");
+    sql.execute("${journalModeCommand}PRAGMA synchronous=NORMAL; PRAGMA temp_store=MEMORY;$cacheSizeCommand$mmapSizeCommand");
   }
 }
 

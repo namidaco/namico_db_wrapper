@@ -2,8 +2,10 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:benchmarking/benchmarking.dart';
+import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'package:namico_db_wrapper/namico_db_wrapper.dart';
@@ -294,6 +296,18 @@ void main() {
       dbwrapper.close();
     });
 
+    test('opening waits for a lock held by another connection', () async {
+      const dbName = 'json_locked_open';
+      final dbFile = DbWrapperFileInfo(directory: dir, dbName: dbName).file;
+      if (dbFile.existsSync()) dbFile.deleteSync();
+      final port = ReceivePort();
+      await Isolate.spawn(_holdExclusiveLock, (dbFile.path, port.sendPort));
+      await port.first;
+      final dbwrapper = DBWrapper.openSync(dir, dbName, config: syncConfig);
+      expect(dbwrapper.get('_'), isNull);
+      dbwrapper.close();
+    });
+
     test('getExtracted/getAllExtracted', () async {
       final dbwrapper = DBWrapper.openSyncAsync(dir, 'json_extracted', config: syncConfig);
       const count = 1200;
@@ -350,6 +364,16 @@ void main() {
       );
     },
   );
+}
+
+void _holdExclusiveLock((String, SendPort) params) {
+  final (path, sendPort) = params;
+  final db = sqlite3.open(path);
+  db.execute('PRAGMA journal_mode=delete; BEGIN EXCLUSIVE;');
+  sendPort.send(null);
+  sleep(const Duration(milliseconds: 500));
+  db.execute('COMMIT;');
+  db.close();
 }
 
 extension _SyncBenchmarkExt on BenchmarkResult {
