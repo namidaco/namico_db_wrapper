@@ -28,6 +28,7 @@ part 'src/core/commands/commands_base.dart';
 part 'src/core/enum.dart';
 part 'src/core/exceptions.dart';
 part 'src/db_core_functions.dart';
+part 'src/db_wrapper_async_batched.dart';
 part 'src/db_wrapper_auto_disposable.dart';
 part 'src/db_wrapper_interface.dart';
 part 'src/db_wrapper_main.dart';

@@ -36,6 +36,12 @@ class DBConfig {
   /// Defaults to [DBConfig.defaultMmapSizeInMB].
   final int? mmapSizeInMB;
 
+  /// Holds single [DBWrapperAsync.put] & [DBWrapperAsync.delete] calls for this long, then sends them as one transaction. null sends each right away.
+  ///
+  /// Reads & bulk writes send the held writes first, so they always see them. Held writes are lost if the app is killed before they are sent.
+  /// Ignored by [DBWrapperSync] & [DBWrapper.openSyncAsync].
+  final Duration? batchWritesDelay;
+
   const DBConfig({
     this.encryptionKey,
     this.customTypes,
@@ -43,6 +49,7 @@ class DBConfig {
     this.autoDisposeTimerDuration = DBConfig.defaultDisposeTimerDuration,
     this.cacheSizeInMB = DBConfig.defaultCacheSizeInMB,
     this.mmapSizeInMB = DBConfig.defaultMmapSizeInMB,
+    this.batchWritesDelay,
   });
 
   const DBConfig.required({
@@ -52,6 +59,7 @@ class DBConfig {
     required this.autoDisposeTimerDuration,
     required this.cacheSizeInMB,
     required this.mmapSizeInMB,
+    required this.batchWritesDelay,
   });
 
   DBConfig copyWith({
@@ -61,6 +69,7 @@ class DBConfig {
     Duration? autoDisposeTimerDuration,
     int? cacheSizeInMB,
     int? mmapSizeInMB,
+    Duration? batchWritesDelay,
   }) =>
       DBConfig(
         encryptionKey: encryptionKey ?? this.encryptionKey,
@@ -69,6 +78,7 @@ class DBConfig {
         autoDisposeTimerDuration: autoDisposeTimerDuration ?? this.autoDisposeTimerDuration,
         cacheSizeInMB: cacheSizeInMB ?? this.cacheSizeInMB,
         mmapSizeInMB: mmapSizeInMB ?? this.mmapSizeInMB,
+        batchWritesDelay: batchWritesDelay ?? this.batchWritesDelay,
       );
 
   @override
@@ -80,18 +90,19 @@ class DBConfig {
         other.createIfNotExist == createIfNotExist &&
         other.autoDisposeTimerDuration == autoDisposeTimerDuration &&
         other.cacheSizeInMB == cacheSizeInMB &&
-        other.mmapSizeInMB == mmapSizeInMB;
+        other.mmapSizeInMB == mmapSizeInMB &&
+        other.batchWritesDelay == batchWritesDelay;
   }
 
   @override
   int get hashCode {
     final customTypes = this.customTypes;
     final customTypesHash = customTypes == null ? null : Object.hashAll(customTypes);
-    return Object.hash(encryptionKey, customTypesHash, createIfNotExist, autoDisposeTimerDuration, cacheSizeInMB, mmapSizeInMB);
+    return Object.hash(encryptionKey, customTypesHash, createIfNotExist, autoDisposeTimerDuration, cacheSizeInMB, mmapSizeInMB, batchWritesDelay);
   }
 
   @override
   String toString() {
-    return 'DBConfig(encryptionKey: $encryptionKey, customTypes: $customTypes, createIfNotExist: $createIfNotExist, autoDisposeTimerDuration: $autoDisposeTimerDuration, cacheSizeInMB: $cacheSizeInMB, mmapSizeInMB: $mmapSizeInMB)';
+    return 'DBConfig(encryptionKey: $encryptionKey, customTypes: $customTypes, createIfNotExist: $createIfNotExist, autoDisposeTimerDuration: $autoDisposeTimerDuration, cacheSizeInMB: $cacheSizeInMB, mmapSizeInMB: $mmapSizeInMB, batchWritesDelay: $batchWritesDelay)';
   }
 }

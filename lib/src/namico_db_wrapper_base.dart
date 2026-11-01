@@ -881,10 +881,17 @@ class DBWrapperAsync with DBWrapperInterfaceAsync {
     final cachedDb = _openedDBAsync[dbKey];
     if (cachedDb != null) return cachedDb;
 
-    final newInstance = DBWrapperAsync._openFromInfo(
-      fileInfo: fileInfo,
-      config: config,
-    );
+    final batchWritesDelay = config.batchWritesDelay;
+    final newInstance = batchWritesDelay == null
+        ? DBWrapperAsync._openFromInfo(
+            fileInfo: fileInfo,
+            config: config,
+          )
+        : _DBWrapperAsyncBatched._openFromInfo(
+            fileInfo: fileInfo,
+            config: config,
+            batchDelay: batchWritesDelay,
+          );
     return _openedDBAsync[dbKey] = newInstance;
   }
 
@@ -1149,6 +1156,9 @@ class _DBIsolateManager with PortsProvider<Map> {
 
   bool get _hasPendingOperations => _completers.isNotEmpty || _awaitingInitCount > 0;
 
+  /// sends commands its owner still holds, so the gentle wait below covers them too.
+  void Function()? onDisposing;
+
   @override
   bool get disposeGracefully => true;
 
@@ -1164,6 +1174,7 @@ class _DBIsolateManager with PortsProvider<Map> {
 
   /// [awaitExit] waits until the isolate closed the db.
   Future<void> dispose({bool beGentle = true, bool awaitExit = false}) async {
+    onDisposing?.call();
     // -- give a small chance for queued operations to finish before closing
     if (_hasPendingOperations && beGentle) {
       await Future.microtask(() {}); // -- drain already queued port messages

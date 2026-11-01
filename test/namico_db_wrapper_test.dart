@@ -348,6 +348,94 @@ void main() {
       dbwrapper.close();
     });
   });
+  group('Batched writes', () {
+    const syncConfig = DBConfig(createIfNotExist: true, autoDisposeTimerDuration: null);
+
+    Future<DBWrapperAsync> openBatched(String dbName, Duration batchWritesDelay) async {
+      await DBWrapper.deleteFiles(DbWrapperFileInfo(directory: dir, dbName: dbName));
+      return DBWrapper.open(dir, dbName, config: DBConfig(createIfNotExist: true, batchWritesDelay: batchWritesDelay));
+    }
+
+    Map<String, Map<String, dynamic>> storedRows(String dbName) {
+      final dbwrapper = DBWrapper.openSync(dir, dbName, config: syncConfig);
+      try {
+        return dbwrapper.loadEverythingKeyedResult();
+      } finally {
+        dbwrapper.close();
+      }
+    }
+
+    test('held writes reach the db once the delay ends', () async {
+      const dbName = 'batched_delay';
+      final dbwrapper = await openBatched(dbName, const Duration(milliseconds: 400));
+      final written = dbwrapper.put('a', {'v': 1});
+      await Future.delayed(const Duration(milliseconds: 100));
+      expect(storedRows(dbName), isEmpty);
+      await written;
+      expect(storedRows(dbName), {
+        'a': {'v': 1},
+      });
+      await dbwrapper.close();
+    });
+
+    test('reads and bulk writes see the held writes', () async {
+      final dbwrapper = await openBatched('batched_reads', const Duration(seconds: 10));
+      dbwrapper.put('a', {'v': 1});
+      dbwrapper.put('b', {'v': 2});
+      dbwrapper.delete('b');
+      dbwrapper.delete('c');
+      dbwrapper.put('c', {'v': 3});
+      expect(await dbwrapper.get('a'), {'v': 1});
+      expect(await dbwrapper.containsKey('b'), isFalse);
+      expect(await dbwrapper.get('c'), {'v': 3});
+
+      dbwrapper.put('d', {'v': 4});
+      await dbwrapper.putAll([
+        MapEntry('d', {'v': 5}),
+      ], (e) => e);
+      expect(await dbwrapper.get('d'), {'v': 5});
+
+      dbwrapper.put('e', {'v': 6});
+      await dbwrapper.deleteBulk(['e']);
+      expect(await dbwrapper.containsKey('e'), isFalse);
+      await dbwrapper.close();
+    });
+
+    test('a full batch is sent without waiting for the delay', () async {
+      const dbName = 'batched_full';
+      final dbwrapper = await openBatched(dbName, const Duration(seconds: 10));
+      Future<void>? lastWritten;
+      for (int i = 0; i < 200; i++) {
+        lastWritten = dbwrapper.put('k$i', {'v': i});
+      }
+      await lastWritten;
+      expect(storedRows(dbName).length, 200);
+      await dbwrapper.close();
+    });
+
+    test('closing sends the held writes first', () async {
+      const dbName = 'batched_close';
+      final dbwrapper = await openBatched(dbName, const Duration(seconds: 10));
+      dbwrapper.put('a', {'v': 1});
+      dbwrapper.delete('missing');
+      await dbwrapper.close();
+      expect(storedRows(dbName), {
+        'a': {'v': 1},
+      });
+    });
+
+    test('suspending the dbs sends the held writes first', () async {
+      const dbName = 'batched_suspend';
+      final dbwrapper = await openBatched(dbName, const Duration(seconds: 10));
+      await dbwrapper.containsKey('_');
+      dbwrapper.put('a', {'v': 1});
+      final rowsWhileSuspended = await NamicoDBWrapper.suspend(() async => storedRows(dbName));
+      expect(rowsWhileSuspended, {
+        'a': {'v': 1},
+      });
+      await dbwrapper.close();
+    });
+  });
   group(
     'Benchmark tests',
     () {

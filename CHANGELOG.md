@@ -1,3 +1,9 @@
+## 5.5.0
+
+### Features
+
+- `DBConfig.batchWritesDelay` holds single `put` & `delete` calls of an async db, then sends them as one transaction. reads & bulk writes send the held writes first.
+
 ## 5.4.0
 
 ### Performance
