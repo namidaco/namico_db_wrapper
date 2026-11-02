@@ -48,7 +48,10 @@ mixin PortsProvider<E> {
     final isolateExit = _isolateExit;
     _isolateExit = null;
     final sendPort = _portCompleterResult;
-    sendPort?.send(PortsProviderMessages.disposed);
+    if (sendPort != null) {
+      sendPort.send(PortsProviderMessages.disposed);
+      PortsProviderMessages._cancelDisposedOnExit(sendPort);
+    }
     if (sendPort == null || !disposeGracefully) _isolate?.kill(priority: Isolate.immediate);
     final portCompleter = _portCompleter;
     if (portCompleter != null && !portCompleter.isCompleted) portCompleter.complete(null);
@@ -83,6 +86,7 @@ mixin PortsProvider<E> {
       if (result is SendPort) {
         if (!portCompleter.isCompleted) portCompleter.complete(result);
         _portCompleterResult = result;
+        PortsProviderMessages._sendDisposedOnExit(result);
         onResultVarFn = onResult; // -- just small optimization
       } else {
         onResult(result);
@@ -175,6 +179,7 @@ class PortsComm {
     _subscription = items.listen((result) {
       if (result is SendPort) {
         _isolateSendPort = result;
+        PortsProviderMessages._sendDisposedOnExit(result);
         // -- closed while the isolate was still starting up, it can finally be disposed
         if (_closed) _disposeWith(result);
       } else if (result == PortsProviderMessages.prepared) {
@@ -208,7 +213,10 @@ class PortsComm {
     _subscription?.cancel();
     _subscription = null;
     items.close();
-    sendPort?.send(PortsProviderMessages.disposed);
+    if (sendPort != null) {
+      sendPort.send(PortsProviderMessages.disposed);
+      PortsProviderMessages._cancelDisposedOnExit(sendPort);
+    }
   }
 }
 
@@ -230,10 +238,17 @@ class IsolateMessageTokenWrapper {
 }
 
 /// The protocol between a [PortsProvider] or [PortsComm] and its isolate, anything else sent is a result.
-enum PortsProviderMessages {
+/// Plain strings, an exit listener response can't be an enum.
+abstract final class PortsProviderMessages {
   /// Sent by the isolate once ready, after its [SendPort].
-  prepared,
+  static const prepared = 'PortsProviderMessages.prepared';
 
   /// Sent to the isolate to release its resources, or by the isolate itself when it closes on its own.
-  disposed,
+  /// Also sent once the isolate that spawned it exits.
+  static const disposed = 'PortsProviderMessages.disposed';
+
+  /// Otherwise a spawner exiting without disposing (ex: android destroying the engine, process kept) leaves its isolates running.
+  static void _sendDisposedOnExit(SendPort isolatePort) => Isolate.current.addOnExitListener(isolatePort, response: disposed);
+
+  static void _cancelDisposedOnExit(SendPort isolatePort) => Isolate.current.removeOnExitListener(isolatePort);
 }

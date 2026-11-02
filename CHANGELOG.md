@@ -1,3 +1,13 @@
+## 5.6.0
+
+### Fixes
+
+- isolates spawned by a `PortsProvider` or `PortsComm` now get `PortsProviderMessages.disposed` when their spawner exits. before, a spawner shut down without disposing (ex: android destroying the flutter engine while the process stays) left them running with everything they hold.
+
+### Breaking
+
+- `PortsProviderMessages` is now a class with `String` constants instead of an enum, because exit listener responses must be plain values. `==` checks and `send()` calls keep working.
+
 ## 5.5.0
 
 ### Features
