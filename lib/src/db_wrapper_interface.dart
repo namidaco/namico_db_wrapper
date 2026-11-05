@@ -40,6 +40,9 @@ abstract mixin class DBWrapperInterfaceAsync<D> implements DBWrapperInterfaceSyn
   /// same as [putAll] except that [putAll] is better with lists.
   Future<void> putAllIterable<E>(Iterable<E> items, CacheWriteItemToEntryCallback<E> itemToEntry);
 
+  /// same as [putAllIterable] but existing keys are left untouched.
+  Future<void> putAllIterableIfAbsent<E>(Iterable<E> items, CacheWriteItemToEntryCallback<E> itemToEntry);
+
   @override
   Future<void> delete(String key);
 

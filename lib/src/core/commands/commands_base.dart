@@ -80,6 +80,7 @@ abstract interface class DBCommandsBase {
   String selectAllKeysCommand(String tableName) => 'SELECT key FROM $tableName';
   String doesKeyExistCommand(String tableName) => 'SELECT 1 FROM $tableName WHERE key = ?';
   String writeCommand(String tableName, List<String>? writeColumns);
+  String writeIfAbsentCommand(String tableName, List<String>? writeColumns);
   String deleteCommand(String tableName, int keysCount) {
     final buffer = StringBuffer('DELETE FROM $tableName WHERE key IN');
     DBCommandsBase.writeParameterMarksInBraces(buffer, keysCount);

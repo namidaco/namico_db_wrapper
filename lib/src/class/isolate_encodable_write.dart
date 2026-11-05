@@ -8,6 +8,14 @@ class _IsolateEncodableWriteList extends _IsolateEncodable {
   void execute(DBWrapperSync db) => db.putAll(writeList);
 }
 
+class _IsolateEncodableWriteListIfAbsent extends _IsolateEncodable {
+  final DBWriteList writeList;
+  const _IsolateEncodableWriteListIfAbsent(this.writeList);
+
+  @override
+  void execute(DBWrapperSync db) => db.putAllIfAbsent(writeList);
+}
+
 class _IsolateEncodableClaimFreeSpaceAndCheckpoint extends _IsolateEncodable {
   const _IsolateEncodableClaimFreeSpaceAndCheckpoint();
 

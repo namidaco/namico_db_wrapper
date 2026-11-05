@@ -145,4 +145,22 @@ ON CONFLICT (key) DO UPDATE
 SET $conflictsBuffer
   ''';
   }
+
+  @override
+  String writeIfAbsentCommand(String tableName, List<String>? writeColumns) {
+    final columnsNamesBuffer = StringBuffer();
+    final columnsParamsBuffer = StringBuffer();
+    if (writeColumns != null) {
+      for (final name in writeColumns) {
+        columnsNamesBuffer.write(', $name');
+        columnsParamsBuffer.write(', ?');
+      }
+    }
+
+    return '''
+INSERT INTO $tableName (key$columnsNamesBuffer)
+VALUES (?$columnsParamsBuffer)
+ON CONFLICT (key) DO NOTHING
+  ''';
+  }
 }

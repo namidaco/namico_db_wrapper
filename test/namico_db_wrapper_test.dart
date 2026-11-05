@@ -252,6 +252,40 @@ void main() {
       expect(dbwrapper.loadAllKeysResult(), isEmpty);
       dbwrapper.close();
     });
+
+    test('putAllIfAbsent keeps existing keys', () async {
+      final dbwrapper = DBWrapper.openSyncAsync(dir, 'bulk_if_absent', config: DBConfig(createIfNotExist: true, autoDisposeTimerDuration: null));
+      dbwrapper.sync.deleteEverything();
+      dbwrapper.sync.put('a', {'v': 'old'});
+      dbwrapper.sync.putAllIfAbsent(DBWriteList([MapEntry('a', {'v': 'new'}), MapEntry('b', {'v': 'new'})]));
+      expect(dbwrapper.sync.get('a'), {'v': 'old'});
+      expect(dbwrapper.sync.get('b'), {'v': 'new'});
+
+      await dbwrapper.putAllIterableIfAbsent([MapEntry('b', {'v': 'newer'}), MapEntry('c', {'v': 'newer'})], (e) => e);
+      expect(await dbwrapper.get('b'), {'v': 'new'});
+      expect(await dbwrapper.get('c'), {'v': 'newer'});
+
+      await dbwrapper.putAll([MapEntry('a', {'v': 'replaced'})], (e) => e);
+      expect(await dbwrapper.get('a'), {'v': 'replaced'});
+      await dbwrapper.close();
+    });
+
+    test('putAllIfAbsent keeps existing keys with custom types', () {
+      final customTypes = [
+        DBColumnType(type: DBColumnTypeEnum.string, name: 'title', nullable: true),
+        DBColumnType(type: DBColumnTypeEnum.int, name: 'n', nullable: true),
+      ];
+      final dbwrapper = DBWrapper.openSync(dir, 'custom_db_if_absent', config: DBConfig(customTypes: customTypes, createIfNotExist: true, autoDisposeTimerDuration: null));
+      dbwrapper.deleteEverything();
+      dbwrapper.put('a', {'title': 'old', 'n': 1});
+      dbwrapper.putAllIfAbsent(DBWriteList([MapEntry('a', {'title': 'new', 'n': 2}), MapEntry('b', {'title': 'new'}), MapEntry('c', null)]));
+      final resA = dbwrapper.get('a')!;
+      expect(resA['title'], 'old');
+      expect(resA['n'], 1);
+      expect(dbwrapper.get('b')!['title'], 'new');
+      expect(dbwrapper.containsKey('c'), isTrue);
+      dbwrapper.close();
+    });
   });
   group('Json value tests', () {
     const syncConfig = DBConfig(createIfNotExist: true, autoDisposeTimerDuration: null);

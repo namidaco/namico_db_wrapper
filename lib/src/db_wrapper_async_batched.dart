@@ -85,6 +85,12 @@ class _DBWrapperAsyncBatched extends DBWrapperAsync {
   }
 
   @override
+  Future<void> putAllIterableIfAbsent<E>(Iterable<E> items, CacheWriteItemToEntryCallback<E> itemToEntry) {
+    _sendPending();
+    return super.putAllIterableIfAbsent(items, itemToEntry);
+  }
+
+  @override
   Future<void> deleteBulk(List<String> keys) {
     _sendPending();
     return super.deleteBulk(keys);

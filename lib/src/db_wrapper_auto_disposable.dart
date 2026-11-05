@@ -126,6 +126,12 @@ class _DBWrapperSyncAutoDisposable extends DBWrapperSync with _DBDisposeTimerMan
   }
 
   @override
+  void putAllIfAbsent(DBWriteList writeList) {
+    _rescheduleDisposeTimer();
+    super.putAllIfAbsent(writeList);
+  }
+
+  @override
   T transaction<T>(T Function() action) {
     _rescheduleDisposeTimer();
     return super.transaction(action);

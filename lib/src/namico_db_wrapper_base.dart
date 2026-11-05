@@ -398,6 +398,9 @@ class DBWrapperSync with DBWrapperInterfaceSync {
   /// Write statements for [DBCommandsCustom], keyed by the written columns.
   final _writeStCache = <String, PreparedStatement>{};
 
+  PreparedStatement? _writeIfAbsentStDefault;
+  final _writeIfAbsentStCache = <String, PreparedStatement>{};
+
   /// [getExtracted] statements, keyed by the json paths count.
   final _readExtractedStCache = <int, PreparedStatement>{};
 
@@ -419,6 +422,11 @@ class DBWrapperSync with DBWrapperInterfaceSync {
       st.close();
     }
     _writeStCache.clear();
+    _writeIfAbsentStDefault?.close();
+    for (final st in _writeIfAbsentStCache.values) {
+      st.close();
+    }
+    _writeIfAbsentStCache.clear();
     for (final st in _readExtractedStCache.values) {
       st.close();
     }
@@ -428,6 +436,7 @@ class DBWrapperSync with DBWrapperInterfaceSync {
     _readSt = null;
     _readStColumnNames = null;
     _writeStDefault = null;
+    _writeIfAbsentStDefault = null;
     _existSt = null;
     _deleteSt = null;
     sql = null;
@@ -740,6 +749,18 @@ class DBWrapperSync with DBWrapperInterfaceSync {
     _executeWrite(st, key, object, writeColumns);
   }
 
+  void _putIfAbsent(String key, Map<String, dynamic>? object) {
+    if (_commands.isWriteStatementStatic) {
+      final st = _writeIfAbsentStDefault ??= _commandsManager.buildWriteIfAbsentStatement(null);
+      _executeWrite(st, key, object, null);
+      return;
+    }
+    final writeColumns = _commands.writeColumnsOf(object);
+    final cacheKey = writeColumns == null ? '' : writeColumns.join(',');
+    final st = _writeIfAbsentStCache[cacheKey] ??= _commandsManager.buildWriteIfAbsentStatement(writeColumns);
+    _executeWrite(st, key, object, writeColumns);
+  }
+
   void _executeWrite(PreparedStatement st, String key, Map<String, dynamic>? object, List<String>? writeColumns) {
     final raw = st.raw;
     st.reset();
@@ -759,6 +780,23 @@ class DBWrapperSync with DBWrapperInterfaceSync {
       for (int i = 0; i < items.length; i++) {
         final item = items[i];
         _put(item.key, item.value);
+      }
+    });
+  }
+
+  /// same as [putAll] but existing keys are left untouched.
+  void putAllIfAbsent(DBWriteList writeList) {
+    final items = writeList.items;
+    if (items.isEmpty) return;
+    if (items.length == 1) {
+      final item = items[0];
+      _putIfAbsent(item.key, item.value);
+      return;
+    }
+    transaction(() {
+      for (int i = 0; i < items.length; i++) {
+        final item = items[i];
+        _putIfAbsent(item.key, item.value);
       }
     });
   }
@@ -997,6 +1035,14 @@ class DBWrapperAsync with DBWrapperInterfaceAsync {
   }
 
   @override
+  Future<void> putAllIterableIfAbsent<E>(Iterable<E> items, CacheWriteItemToEntryCallback<E> itemToEntry) {
+    if (items.isEmpty) return Future.value(null);
+    final entries = DBWriteList.fromIterable(items, itemToEntry);
+    final writeListEnc = _IsolateEncodable.writeListIfAbsent(entries);
+    return _executeAsync(writeListEnc);
+  }
+
+  @override
   Future<void> delete(String key) {
     final command = _IsolateEncodable.delete(key);
     return _executeAsync(command);
@@ -1047,6 +1093,11 @@ class _DBCommandsManager {
 
   PreparedStatement buildWriteStatement(List<String>? writeColumns) {
     final command = _commands.writeCommand(tableName, writeColumns);
+    return sql.prepare(command, persistent: true);
+  }
+
+  PreparedStatement buildWriteIfAbsentStatement(List<String>? writeColumns) {
+    final command = _commands.writeIfAbsentCommand(tableName, writeColumns);
     return sql.prepare(command, persistent: true);
   }
 

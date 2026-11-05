@@ -1,3 +1,9 @@
+## 5.7.0
+
+### Features
+
+- `putAllIterableIfAbsent` (async) & `putAllIfAbsent` (sync) write only the keys that don't exist yet, existing ones are left untouched.
+
 ## 5.6.0
 
 ### Fixes

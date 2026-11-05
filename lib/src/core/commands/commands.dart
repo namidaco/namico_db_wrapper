@@ -107,4 +107,13 @@ ON CONFLICT (key) DO UPDATE
 SET value=EXCLUDED.value
   ''';
   }
+
+  @override
+  String writeIfAbsentCommand(String tableName, List<String>? writeColumns) {
+    return '''
+INSERT INTO $tableName (key, value)
+VALUES (?, CAST(? AS TEXT))
+ON CONFLICT (key) DO NOTHING
+  ''';
+  }
 }
